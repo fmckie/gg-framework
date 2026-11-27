@@ -1176,6 +1176,98 @@ describe("useAgentEvents", () => {
     expect(marker).toMatchObject({ kind: "autopilot", phase: "plan_approved" });
   });
 
+  describe("the approved row for an Autopilot approval", () => {
+    const named = "# Rate-limit failed logins\n\n## Steps\n\n1. Share the limiter";
+    const approved = { kind: "plan_decision", decision: "accepted" };
+
+    it("leaves the approved row with the plan's title, then Helper's line with its reason", () => {
+      const { hook, getItems } = setup();
+      act(() => {
+        hook.result.current.handleEvent(ev("plan_exit", { planPath: "/tmp/p.md", content: named }));
+        hook.result.current.handleEvent(
+          ev("autopilot_plan_accepted", { reason: "Corpus unavailable." }),
+        );
+      });
+      expect(getItems()).toEqual([
+        expect.objectContaining({ ...approved, title: "Rate-limit failed logins" }),
+        expect.objectContaining({
+          kind: "autopilot",
+          phase: "plan_approved",
+          reason: "Corpus unavailable.",
+        }),
+      ]);
+    });
+
+    it("puts both rows back after the reset the sidecar sends right behind the approval", () => {
+      const { hook, getItems } = setup();
+      act(() => {
+        hook.result.current.handleEvent(ev("plan_exit", { planPath: "/tmp/p.md", content: named }));
+        hook.result.current.handleEvent(ev("autopilot_plan_accepted", {}));
+        hook.result.current.handleEvent(ev("session_reset", { planTotal: 1 }));
+      });
+      expect(getItems()).toEqual([
+        expect.objectContaining({ ...approved, title: "Rate-limit failed logins" }),
+        expect.objectContaining({ kind: "autopilot", phase: "plan_approved" }),
+      ]);
+      // Once only: a later reset empties the transcript as before.
+      act(() => hook.result.current.handleEvent(ev("session_reset", {})));
+      expect(getItems()).toEqual([]);
+    });
+
+    it("names a plan with no heading of its own Plan", () => {
+      const { hook, getItems } = setup();
+      act(() => {
+        hook.result.current.handleEvent(
+          ev("plan_exit", { planPath: "/tmp/p.md", content: "1. Go" }),
+        );
+        hook.result.current.handleEvent(ev("autopilot_plan_accepted", {}));
+      });
+      expect(getItems()[0]).toMatchObject({ ...approved, title: "Plan" });
+    });
+
+    it("puts nothing back when anything else comes between the approval and a reset", () => {
+      const { hook, getItems } = setup();
+      act(() => {
+        hook.result.current.handleEvent(ev("plan_exit", { planPath: "/tmp/p.md", content: named }));
+        hook.result.current.handleEvent(ev("autopilot_plan_accepted", {}));
+        hook.result.current.handleEvent(ev("plan_mode", { active: false }));
+        hook.result.current.handleEvent(ev("session_reset", {}));
+      });
+      expect(getItems()).toEqual([]);
+    });
+
+    it("leaves no approved row when Autopilot sends the plan back or a review is withdrawn", () => {
+      const { hook, getItems } = setup();
+      act(() => {
+        hook.result.current.handleEvent(ev("plan_exit", { planPath: "/tmp/p.md", content: named }));
+        hook.result.current.handleEvent(ev("autopilot_prompted", { body: "Cover the lockout." }));
+      });
+      expect(getItems().filter((item) => item.kind === "plan_decision")).toEqual([]);
+      act(() => hook.result.current.handleEvent(ev("session_reset", {})));
+      expect(getItems()).toEqual([]);
+    });
+
+    it("leaves the iPhone as it was: Helper's row alone, and gone with the reset", () => {
+      document.documentElement.classList.add("platform-ios");
+      try {
+        const { hook, getItems } = setup();
+        act(() => {
+          hook.result.current.handleEvent(
+            ev("plan_exit", { planPath: "/tmp/p.md", content: named }),
+          );
+          hook.result.current.handleEvent(ev("autopilot_plan_accepted", {}));
+        });
+        expect(getItems()).toEqual([
+          expect.objectContaining({ kind: "autopilot", phase: "plan_approved" }),
+        ]);
+        act(() => hook.result.current.handleEvent(ev("session_reset", { planTotal: 1 })));
+        expect(getItems()).toEqual([]);
+      } finally {
+        document.documentElement.classList.remove("platform-ios");
+      }
+    });
+  });
+
   it("uses sidecar plan progress as the authoritative live-file snapshot", () => {
     const { hook, deps } = setup();
     deps.planTotalRef.current = 2;
@@ -1343,6 +1435,123 @@ describe("useAgentEvents", () => {
     expect(groups[1]?.kind === "subagent_group" ? groups[1].agents : []).toMatchObject([
       { toolCallId: "new-agent", status: "starting" },
     ]);
+  });
+
+  it("keeps a subagent call's agent, the first line of its brief and of its result", () => {
+    const { hook, getItems } = setup();
+    const agents = (): unknown[] => {
+      const group = getItems().find((item) => item.kind === "subagent_group");
+      return group?.kind === "subagent_group" ? group.agents : [];
+    };
+    const before = Date.now();
+    act(() => {
+      hook.result.current.handleEvent(
+        ev("tool_call_start", {
+          toolCallId: "s1",
+          name: "subagent",
+          args: {
+            agent: "auditor",
+            task: "\n## Audit `login.ts` for timing leaks\n\nYou are reviewing the login route.",
+          },
+        }),
+      );
+      hook.result.current.handleEvent(
+        ev("tool_call_start", { toolCallId: "s2", name: "subagent", args: { task: "Run it" } }),
+      );
+    });
+    expect(agents()).toMatchObject([
+      { toolCallId: "s1", agentName: "auditor", agentType: "auditor", status: "running" },
+      { toolCallId: "s2", agentName: undefined, agentType: undefined, task: "Run it" },
+    ]);
+    const [first] = agents() as { task?: string; startedAt?: number; result?: string }[];
+    expect(first?.task).toBe("Audit `login.ts` for timing leaks");
+    expect(first?.startedAt).toBeGreaterThanOrEqual(before);
+    expect(first?.result).toBeUndefined();
+
+    act(() => {
+      hook.result.current.handleEvent(
+        ev("tool_call_end", {
+          toolCallId: "s1",
+          isError: false,
+          result: "One early return leaks timing.\n\n- `verifyPassword()` returns early",
+          details: { durationMs: 25_260 },
+        }),
+      );
+      hook.result.current.handleEvent(
+        ev("tool_call_end", {
+          toolCallId: "s2",
+          isError: true,
+          result: "Failed to spawn sub-agent: ENOENT",
+        }),
+      );
+    });
+    expect(agents()).toMatchObject([
+      { status: "done", result: "One early return leaks timing.", durationMs: 25_260 },
+      { status: "error", result: "Failed to spawn sub-agent: ENOENT" },
+    ]);
+  });
+
+  it("keeps a spawned agent's type beside its task name, and its output or error", async () => {
+    const { hook, getItems } = setup();
+    const base = {
+      agent_id: "abcd1234",
+      task_name: "recheck-findings",
+      agent_name: "skeptic",
+      started_at: 1,
+      updated_at: 2,
+      elapsed_ms: 4_000,
+      turn_count: 0,
+      tool_use_count: 0,
+      token_usage: { input: 0, output: 0 },
+    };
+    const agent = (): Record<string, unknown> | undefined => {
+      const group = getItems().find((item) => item.kind === "subagent_group");
+      return group?.kind === "subagent_group"
+        ? (group.agents[0] as unknown as Record<string, unknown>)
+        : undefined;
+    };
+    const before = Date.now();
+    act(() =>
+      hook.result.current.handleEvent(ev("subagent_state", { ...base, state: "starting" })),
+    );
+    await flushSubagents();
+    expect(agent()).toMatchObject({
+      agentName: "recheck-findings",
+      agentType: "skeptic",
+      status: "starting",
+      result: undefined,
+    });
+    // Its start is this window's clock less the time the host says has passed.
+    const startedAt = agent()?.startedAt as number;
+    expect(startedAt).toBeGreaterThanOrEqual(before - 4_000);
+    expect(startedAt).toBeLessThanOrEqual(Date.now() - 4_000);
+
+    act(() =>
+      hook.result.current.handleEvent(
+        ev("subagent_state", {
+          ...base,
+          agent_name: undefined,
+          state: "completed",
+          elapsed_ms: 9_000,
+          output: "**Both findings hold.**\nThe early return is on line 41.",
+        }),
+      ),
+    );
+    await flushSubagents();
+    expect(agent()).toMatchObject({
+      agentType: "skeptic",
+      status: "idle",
+      result: "Both findings hold.",
+      startedAt,
+    });
+
+    act(() =>
+      hook.result.current.handleEvent(
+        ev("subagent_state", { ...base, state: "failed", error: "Model refused\nstack…" }),
+      ),
+    );
+    await flushSubagents();
+    expect(agent()).toMatchObject({ status: "error", result: "Model refused" });
   });
 });
 

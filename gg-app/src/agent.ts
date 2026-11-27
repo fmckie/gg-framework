@@ -44,6 +44,8 @@ export interface SubAgentStatePayload {
   };
   output?: string;
   error?: string;
+  /** The agent definition it runs as; absent for one with no definition. */
+  agent_name?: string;
 }
 
 export interface SidecarEvent {

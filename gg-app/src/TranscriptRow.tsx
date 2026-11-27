@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { lazy, memo, Suspense } from "react";
 import { theme } from "./theme";
 import { openImageDataUrl, openProjectPath } from "./agent";
 import { HOOK_PRESENTATION } from "./useAgentEvents";
@@ -17,10 +17,17 @@ import { hasDoneMarker, segmentDoneMarkers } from "./plan-steps";
 import { AtIcon } from "@phosphor-icons/react";
 import { EnhancedSegments } from "./PromptEnhancement";
 import { basename } from "./tool-format";
+import { helperTokenParts } from "./helper-mention";
 import type { Item } from "./transcript-item";
 import { ErrorNotice } from "./placeholder/ErrorNotice";
 import { SecurityNotice } from "./placeholder/SecurityNotice";
 import { PlanDecisionNotice } from "./placeholder/PlanDecisionNotice";
+import { isPhone } from "./platform";
+
+// The desktop's subagent rows and their cameos load when a turn first delegates.
+const OlympusRows = lazy(() =>
+  import("./olympus/OlympusRows").then((m) => ({ default: m.OlympusRows })),
+);
 
 const ALL_CLEAR_VARIATIONS = [
   "All clear. Looks good to me.",
@@ -130,6 +137,20 @@ function KenReply({
   );
 }
 
+// A question to Helper, with its leading mention in a span so the mention alone
+// can take Helper's colour. The text is unchanged.
+function HelperQuestion({ text }: { text: string }): React.ReactNode {
+  const parts = helperTokenParts(text);
+  if (!parts) return text;
+  return (
+    <>
+      {parts.lead}
+      <span className="helper-mention">{parts.token}</span>
+      {parts.rest}
+    </>
+  );
+}
+
 // ── Row renderers ──────────────────────────────────────────
 // Memoized per row. While a reply streams, its text grows in the live-text
 // store (live-text.ts) and only that row re-renders, via `useLiveText`; `items`
@@ -213,7 +234,7 @@ function TranscriptRowBody({
         return (
           <div className="user-msg command labelled user-ken-sent">
             <span className="command-shimmer" style={{ color: theme.ken }}>
-              Sent to GG Coder
+              Sent to Kleio
             </span>
           </div>
         );
@@ -264,6 +285,8 @@ function TranscriptRowBody({
           )}
           {item.enhancements && item.enhancements.some((s) => s.kind === "term") ? (
             <EnhancedSegments segments={item.enhancements} />
+          ) : item.ken ? (
+            <HelperQuestion text={item.text} />
           ) : (
             item.text
           )}
@@ -404,7 +427,7 @@ function TranscriptRowBody({
     case "plan":
       return <PlanModeLogo reason={item.reason} />;
     case "plan_decision":
-      return <PlanDecisionNotice decision={item.decision} />;
+      return <PlanDecisionNotice decision={item.decision} title={item.title} />;
     case "ask":
       return (
         <AskBand
@@ -430,8 +453,16 @@ function TranscriptRowBody({
           <span style={{ color: theme.text, fontWeight: 600 }}>{item.title}</span>
         </div>
       );
-    case "subagent_group":
-      return <SubAgentFeed agents={item.agents} aborted={item.aborted} />;
+    case "subagent_group": {
+      const feed = <SubAgentFeed agents={item.agents} aborted={item.aborted} />;
+      // The iPhone keeps the feed; on the desktop it stands in while the rows load.
+      if (isPhone()) return feed;
+      return (
+        <Suspense fallback={feed}>
+          <OlympusRows agents={item.agents} aborted={item.aborted} />
+        </Suspense>
+      );
+    }
     case "security":
       return <SecurityNotice rule={item.rule} target={item.target} count={item.count} />;
     case "compaction":

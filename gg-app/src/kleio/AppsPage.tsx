@@ -3,6 +3,9 @@
 // catalogue below is a searchable grid. Sign-in happens in the browser, and the
 // page notices when it's done.
 //
+// This file loads, searches, connects and disconnects for both layouts. The
+// phone's markup is below; the desktop's is the shelf (AppsShelf.tsx).
+//
 // Logos come from Composio's logo CDN, addressed by the app's slug — never
 // from the catalogue's free-form logo links, which can point anywhere. The
 // app's content security policy allows images from that one origin only.
@@ -17,6 +20,7 @@ import {
 } from "@phosphor-icons/react";
 import { openUrl } from "../agent";
 import { Badge } from "../Badge";
+import { isPhone } from "../platform";
 import { SettingsCard } from "../settings-section";
 import { SettingsHeaderStatus } from "../settings-header";
 import { theme } from "../theme";
@@ -26,11 +30,17 @@ import {
   listConnections,
   listToolkits,
   errorText,
+  getSetupStatus,
   KleioApiError,
+  removeSetupKey,
   type Connection,
+  type SetupStatus,
   type Toolkit,
 } from "./kleioApi";
+import { connectionState, type ConnectionState } from "./connectionState";
+import { AppsShelf } from "./AppsShelf";
 import { KeyForm } from "./KeyForm";
+import { takeSettingsIntent } from "./settingsIntent";
 
 /** The one image origin the CSP allows (src-tauri/tauri.conf.json). */
 export const LOGO_ORIGIN = "https://logos.composio.dev";
@@ -78,23 +88,8 @@ export function logoUrl(slug: string): string | null {
   return SLUG.test(slug) ? `${LOGO_ORIGIN}/api/${slug.toLowerCase()}` : null;
 }
 
-export type ConnectionState = "connected" | "pending" | "expired" | "failed" | "other";
-
-export function connectionState(status: string): ConnectionState {
-  switch (status.toUpperCase()) {
-    case "ACTIVE":
-      return "connected";
-    case "INITIATED":
-    case "INITIALIZING":
-      return "pending";
-    case "EXPIRED":
-      return "expired";
-    case "FAILED":
-      return "failed";
-    default:
-      return "other";
-  }
-}
+// In its own file so Overview can read an app's state without loading this page.
+export { connectionState, type ConnectionState };
 
 function stateText(status: string): string {
   switch (connectionState(status)) {
@@ -167,12 +162,27 @@ export function AppsPage(): React.ReactElement {
   const [loadingMore, setLoadingMore] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /** The last thing that went wrong. `list`: the host couldn't be asked for your apps. */
+  const [error, setError] = useState<{ text: string; list: boolean } | null>(null);
   /** The last connect needs the user's own keys in Composio: offer the way there. */
   const [setupFor, setSetupFor] = useState<string | null>(null);
   /** Apps found to need no sign-in after a connect was refused (older hosts). */
   const [noSignIn, setNoSignIn] = useState<ReadonlySet<string>>(new Set());
   const query = useRef("");
+  // The desktop only: who may change the Composio key, and where it is kept.
+  // Null until the host says, and for an older host that can't: as before then.
+  // The phone has the key on Setup.
+  const [keys, setKeys] = useState<SetupStatus | null>(null);
+  const desktop = !isPhone();
+  const loadKeys = useCallback(async (): Promise<void> => {
+    if (!desktop) return;
+    try {
+      setKeys(await getSetupStatus());
+    } catch {
+      setKeys(null);
+    }
+  }, [desktop]);
+  useEffect(() => void loadKeys(), [loadKeys]);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -181,7 +191,7 @@ export function AppsPage(): React.ReactElement {
       setConnections(r.connections);
       setError(null);
     } catch (e) {
-      setError(errorText(e));
+      setError({ text: errorText(e), list: true });
     }
   }, []);
 
@@ -220,7 +230,7 @@ export function AppsPage(): React.ReactElement {
           setToolkits(p.toolkits);
           setCursor(p.nextCursor);
         })
-        .catch((e: unknown) => live && setError(errorText(e)));
+        .catch((e: unknown) => live && setError({ text: errorText(e), list: false }));
     }, SEARCH_DEBOUNCE_MS);
     return () => {
       live = false;
@@ -242,7 +252,7 @@ export function AppsPage(): React.ReactElement {
       });
       setCursor(p.nextCursor);
     } catch (e) {
-      setError(errorText(e));
+      setError({ text: errorText(e), list: false });
     } finally {
       setLoadingMore(false);
     }
@@ -261,7 +271,7 @@ export function AppsPage(): React.ReactElement {
         // Nothing to connect: show the app as ready instead of an error.
         setNoSignIn((s) => new Set(s).add(slug));
       } else {
-        setError(appErrorText(e));
+        setError({ text: appErrorText(e), list: false });
         if (needsSetup(e)) setSetupFor(slug);
       }
     } finally {
@@ -277,10 +287,59 @@ export function AppsPage(): React.ReactElement {
       setConfirmRemove(null);
       await load();
     } catch (e) {
-      setError(errorText(e));
+      setError({ text: errorText(e), list: false });
     } finally {
       setPending(null);
     }
+  }
+
+  // What Overview's Fix asked the desktop's page for, if it did: read once.
+  const [toReconnect] = useState(() => desktop && takeSettingsIntent() === "apps-fix");
+  if (desktop) {
+    const connected = connections.filter((c) => connectionState(c.status) === "connected");
+    return (
+      <>
+        <SettingsHeaderStatus>
+          {configured === true && (
+            <Badge color={connected.length > 0 ? theme.success : undefined}>
+              {`${connected.length} connected`}
+            </Badge>
+          )}
+        </SettingsHeaderStatus>
+        <AppsShelf
+          words={{ logoUrl, categoryLabel, authConfigsUrl: COMPOSIO_AUTH_CONFIGS_URL }}
+          configured={configured}
+          connections={connections}
+          listFailed={error?.list === true}
+          error={error && !error.list ? error.text : null}
+          needsOwnKeys={setupFor !== null}
+          search={search}
+          onSearch={setSearch}
+          toolkits={toolkits}
+          hasMore={cursor !== null}
+          loadingMore={loadingMore}
+          onMore={() => void more()}
+          pending={pending}
+          noSignIn={noSignIn}
+          keys={keys}
+          focusReconnect={toReconnect}
+          onConnect={(slug) => void connect(slug)}
+          onRetry={() => void load()}
+          onDisconnect={async (c) => {
+            await disconnect(c.id);
+            await load();
+          }}
+          onKeySaved={(status) => {
+            setKeys(status);
+            void load();
+          }}
+          onRemoveKey={async () => {
+            setKeys(await removeSetupKey("composio"));
+            await load();
+          }}
+        />
+      </>
+    );
   }
 
   if (configured === false) {
@@ -318,7 +377,7 @@ export function AppsPage(): React.ReactElement {
 
       {error && (
         <div className="kleio-error app-error" role="alert">
-          <span>{error}</span>
+          <span>{error.text}</span>
           {setupFor && (
             <button
               type="button"

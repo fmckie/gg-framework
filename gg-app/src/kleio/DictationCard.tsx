@@ -271,14 +271,21 @@ function TryIt(): React.ReactElement {
 
 /**
  * `canTry`: this device has dictation (iPhone and Mac), so the ready card
- * offers Try it; elsewhere it says where dictation is.
+ * offers Try it; elsewhere it says where dictation is. `section`: the desktop
+ * Kleio page's quiet section, where status lives on Overview (no badge) and
+ * the download is a secondary action, since Talk now is that page's primary.
  */
 export function DictationCard({
   canTry = supportsDictation(),
+  section = false,
 }: {
   canTry?: boolean;
+  section?: boolean;
 }): React.ReactElement {
   const { load, starting, start, recheck } = useHostDictation();
+  const titleId = useId();
+  const main = section ? "btn btn-ghost btn-sm" : "btn btn-primary";
+  const retry = section ? "st-text-btn" : "btn btn-ghost";
   const [said, setSaid] = useState("");
   const shown = useRef<DictationSetup["state"] | null>(null);
 
@@ -307,17 +314,8 @@ export function DictationCard({
   const blurb =
     "Speak instead of typing in any chat box. Your host turns speech into text itself, so recordings never leave your devices and host.";
 
-  return (
-    <SettingsCard
-      title="Dictation"
-      subtitle="Whisper, on your host"
-      badge={<StepBadge mark={mark} />}
-      description={
-        state?.state === "absent"
-          ? `${blurb} Needs a one-time download of ${mb(state.bytes)} MB on the host.`
-          : blurb
-      }
-    >
+  const body = (
+    <>
       {load.kind === "old" ? (
         <p className="settings-desc">
           Your host needs the latest Kleio to set up dictation here. Dictation still works: the
@@ -330,18 +328,13 @@ export function DictationCard({
               ? "Couldn't reach the engine on your host."
               : "Couldn't check dictation on your host."}
           </p>
-          <button type="button" className="btn btn-ghost" onClick={() => void recheck()}>
+          <button type="button" className={retry} onClick={() => void recheck()}>
             Try again
           </button>
         </div>
       ) : state === null ? null : state.state === "absent" ? (
         <div className="modal-row">
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={starting}
-            onClick={() => void start()}
-          >
+          <button type="button" className={main} disabled={starting} onClick={() => void start()}>
             {starting ? "Starting…" : `Download speech model (${mb(state.bytes)} MB)`}
           </button>
         </div>
@@ -361,12 +354,7 @@ export function DictationCard({
       ) : state.state === "failed" ? (
         <div className="setup-status">
           <p className="settings-desc">{dictationFailureText(state.reason, state.bytes)}</p>
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={starting}
-            onClick={() => void start()}
-          >
+          <button type="button" className={main} disabled={starting} onClick={() => void start()}>
             {starting ? "Starting…" : "Try again"}
           </button>
         </div>
@@ -378,6 +366,38 @@ export function DictationCard({
       <p className="sr-only" role="status">
         {said}
       </p>
+    </>
+  );
+
+  if (section)
+    return (
+      <section className="kl-quiet" aria-labelledby={titleId}>
+        <h2 className="st-label" id={titleId}>
+          Dictation
+        </h2>
+        <p className="kl-quiet-line">Speak instead of typing in any chat box.</p>
+        <p className="kl-quiet-note">
+          {`Your host turns speech into text itself, so recordings never leave your devices and host.${
+            state?.state === "absent"
+              ? ` Needs a one-time download of ${mb(state.bytes)} MB on the host.`
+              : ""
+          }`}
+        </p>
+        <div className="kl-quiet-body">{body}</div>
+      </section>
+    );
+  return (
+    <SettingsCard
+      title="Dictation"
+      subtitle="Whisper, on your host"
+      badge={<StepBadge mark={mark} />}
+      description={
+        state?.state === "absent"
+          ? `${blurb} Needs a one-time download of ${mb(state.bytes)} MB on the host.`
+          : blurb
+      }
+    >
+      {body}
     </SettingsCard>
   );
 }

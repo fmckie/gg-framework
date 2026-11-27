@@ -16,6 +16,8 @@ export interface SettingsTab<Id extends string> {
   icon: Icon;
   /** A small red dot on the icon: something on this tab needs attention. */
   alert?: boolean;
+  /** Not available yet, and why: its tooltip. Clicks and arrow keys pass it by. */
+  disabled?: string;
 }
 
 interface Props<Id extends string> {
@@ -27,6 +29,8 @@ interface Props<Id extends string> {
   /** Accessible name and tab ids when this control is reused outside Settings. */
   label?: string;
   tabIdPrefix?: string;
+  /** Name each unselected tab in a tooltip; the selected one shows its label. */
+  tooltips?: boolean;
 }
 
 interface Box {
@@ -83,6 +87,7 @@ export function SettingsTabBar<Id extends string>({
   panelId,
   label = "Settings sections",
   tabIdPrefix = "settings-tab",
+  tooltips = false,
 }: Props<Id>): React.ReactElement {
   const barRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLSpanElement>(null);
@@ -194,13 +199,16 @@ export function SettingsTabBar<Id extends string>({
   // Arrow keys, Home and End move between tabs, selecting as they go (the
   // tabs pattern with automatic activation, as in yaatuber).
   function onKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number): void {
-    const last = tabs.length - 1;
+    // Only the tabs that can be chosen take part.
+    const open = tabs.flatMap((t, i) => (t.disabled ? [] : [i]));
+    const at = open.indexOf(index);
+    const last = open.length - 1;
     let next: number | null = null;
-    if (event.key === "ArrowRight") next = index === last ? 0 : index + 1;
-    else if (event.key === "ArrowLeft") next = index === 0 ? last : index - 1;
+    if (event.key === "ArrowRight") next = at === last ? 0 : at + 1;
+    else if (event.key === "ArrowLeft") next = at <= 0 ? last : at - 1;
     else if (event.key === "Home") next = 0;
     else if (event.key === "End") next = last;
-    const target = next === null ? undefined : tabs[next];
+    const target = next === null ? undefined : tabs[open[next] ?? -1];
     if (!target) return;
     event.preventDefault();
     select(target.id);
@@ -223,11 +231,15 @@ export function SettingsTabBar<Id extends string>({
               data-tab-id={tab.id}
               id={`${tabIdPrefix}-${tab.id}`}
               aria-label={tab.label}
+              title={tab.disabled ?? (tooltips && !active ? tab.label : undefined)}
               aria-selected={active}
+              aria-disabled={tab.disabled ? true : undefined}
               aria-controls={panelId}
               tabIndex={active ? 0 : -1}
               onKeyDown={(event) => onKeyDown(event, index)}
-              onClick={() => select(tab.id)}
+              onClick={() => {
+                if (!tab.disabled) select(tab.id);
+              }}
             >
               <span className="settings-tab-icon">
                 <TabIcon size={19} weight={active ? "fill" : "regular"} aria-hidden="true" />

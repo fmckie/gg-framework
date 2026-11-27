@@ -77,7 +77,7 @@ html.platform-ios textarea,
 html.platform-ios select {
   font-size: max(16px, 1em);
 }
-/* The @helper highlight is a copy of the draft drawn under the textarea, whose
+/* The @help highlight is a copy of the draft drawn under the textarea, whose
    own text goes clear, so it takes the textarea's 16px too. At the desktop's
    15px it wrapped on different words from the textarea, and the caret, which
    the textarea draws, sat a line below the text you could see. */
@@ -175,6 +175,7 @@ html.platform-ios .kleio-form-scroll {
 /* Three 132px pills don't fit side by side in 354px: stack them into one
    column of full-width pills — bigger targets, same order, same colours. */
 html.platform-ios .home-actions {
+  display: flex;
   flex-direction: column;
   align-items: stretch;
   width: min(100%, 320px);
@@ -185,6 +186,19 @@ html.platform-ios .home-action {
   height: 52px;
   justify-content: center;
   font-size: 17px;
+}
+/* The domed buttons at 52px: the rim's corners grow with them (the dome is in percentages). */
+html.platform-ios .home-action.kleio-cloisonne {
+  border-radius: 12px;
+}
+html.platform-ios .home-action.kleio-cloisonne::before {
+  border-radius: 10px;
+}
+/* Talk to Kleio: 44px, a full touch target. */
+html.platform-ios .home-quiet > .home-brief {
+  height: 44px;
+  padding: 0 18px;
+  font-size: 15px;
 }
 
 /* No window title bar to clear, so the desktop's 34–40px chrome gutters go;
@@ -407,7 +421,7 @@ html.platform-ios .icon-circle {
   width: 36px;
   height: 36px;
 }
-/* @helper beside the paperclip: one tap addresses the draft to the helper, with
+/* @help beside the paperclip: one tap addresses the draft to the helper, with
    no trip to the symbols keyboard for the @. The paperclip's glass circle,
    stretched to a pill around the trigger in Ken's colour, which a tap's
    sticky hover must not turn white. */

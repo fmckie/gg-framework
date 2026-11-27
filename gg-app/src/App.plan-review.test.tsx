@@ -140,3 +140,179 @@ describe("plan review accept", () => {
     expect((retry as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+describe("plan review states", () => {
+  const NAMED = "# Rate-limit failed logins\n\nWhy.\n\n## Steps\n1. Share the limiter\n";
+
+  async function openNamed(emit: (event: SidecarEvent) => void): Promise<HTMLElement> {
+    await screen.findByRole("textbox");
+    act(() => emit({ type: "plan_review", data: { planPath: "/tmp/plan.md", content: NAMED } }));
+    return screen.findByRole("dialog", { name: "Review plan" });
+  }
+
+  it("pending: says it is waiting for your review, as a status, and shows no approved row", async () => {
+    const { emit } = harness("ok");
+    const { container } = render(<App />);
+    const dialog = await openNamed(emit);
+
+    const line = dialog.querySelector(".plan-review-status");
+    expect(line?.getAttribute("role")).toBe("status");
+    expect(line?.textContent).toBe("Waiting for your review");
+    expect(container.querySelector(".plan-done")).toBeNull();
+    expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
+  });
+
+  it("approved: folds the plan into one titled row, takes the actions away, and the transcript goes on", async () => {
+    const { accepts, prompts, emit } = harness("ok");
+    // As the real sidecar does: the fresh session's reset lands before the accept resolves.
+    accepts.mockImplementation(() => emit({ type: "session_reset", data: {} }));
+    const { container } = render(<App />);
+    await openNamed(emit);
+
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+
+    await waitFor(() => expect(prompts).toHaveBeenCalledTimes(1));
+    const rows = container.querySelectorAll(".plan-done");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toBe("\u2713Rate-limit failed logins \u00b7 Approved");
+    expect(rows[0].getAttribute("role")).toBe("status");
+    expect(screen.queryByRole("dialog", { name: "Review plan" })).toBeNull();
+    expect(screen.queryByText("Waiting for your review")).toBeNull();
+    for (const name of ["Accept", "Reject", "Feedback"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    expect(screen.queryByText(/Plan accepted/)).toBeNull();
+
+    act(() => emit({ type: "run_start", data: {} }));
+    act(() => emit({ type: "text_delta", data: { text: "Out of plan mode." } }));
+    // The reply's words are drawn one span each, so it is read as a whole row.
+    const reply = await waitFor(() => {
+      const row = container.querySelector('[data-kind="assistant"]');
+      expect(row?.textContent).toContain("Out of plan mode.");
+      return row as Element;
+    });
+    expect(rows[0].compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelectorAll(".plan-done")).toHaveLength(1);
+  });
+
+  it("approved: a plan with no heading of its own is named Plan", async () => {
+    const { prompts, emit } = harness("ok");
+    const { container } = render(<App />);
+    await screen.findByRole("textbox");
+    act(() =>
+      emit({ type: "plan_review", data: { planPath: "/tmp/plan.md", content: "1. Do it" } }),
+    );
+    await screen.findByRole("dialog", { name: "Review plan" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+
+    await waitFor(() => expect(prompts).toHaveBeenCalledTimes(1));
+    expect(container.querySelector(".plan-done")?.textContent).toBe("\u2713Plan \u00b7 Approved");
+  });
+
+  it("rejected: leaves the rejection's own line and no approved row", async () => {
+    const { accepts, prompts, emit } = harness("ok");
+    const { container } = render(<App />);
+    await openNamed(emit);
+
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+
+    await waitFor(() => expect(prompts).toHaveBeenCalledTimes(1));
+    expect(accepts).not.toHaveBeenCalled();
+    expect(screen.getByText("Plan rejected. Nothing was built.")).toBeTruthy();
+    expect(container.querySelector(".plan-done")).toBeNull();
+    expect(container.textContent).not.toContain("Approved");
+    expect(screen.queryByRole("dialog", { name: "Review plan" })).toBeNull();
+  });
+
+  it("refused: an accept the sidecar refuses shows no approved row and keeps waiting", async () => {
+    const { emit } = harness("refused");
+    const { container } = render(<App />);
+    await openNamed(emit);
+
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+
+    await screen.findByText("The plan couldn't be accepted");
+    expect(container.querySelector(".plan-done")).toBeNull();
+    expect(await screen.findByText("Waiting for your review")).toBeTruthy();
+  });
+
+  it("cancelled: a review withdrawn by a new session leaves no approved row", async () => {
+    const { prompts, emit } = harness("ok");
+    const { container } = render(<App />);
+    await openNamed(emit);
+
+    act(() => emit({ type: "session_reset", data: {} }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review plan" })).toBeNull());
+    expect(container.querySelector(".plan-done")).toBeNull();
+    expect(screen.queryByText("Waiting for your review")).toBeNull();
+    expect(prompts).not.toHaveBeenCalled();
+  });
+
+  it("Autopilot approved: shows the same titled row, with Helper's line and reason under it, after the reset", async () => {
+    const { accepts, prompts, emit } = harness("ok");
+    const { container } = render(<App />);
+    await openNamed(emit);
+
+    // The sidecar's own order: the plan, Helper's approval, then the fresh session.
+    act(() => emit({ type: "plan_exit", data: { planPath: "/tmp/plan.md", content: NAMED } }));
+    act(() => emit({ type: "autopilot_plan_accepted", data: { reason: "Corpus unavailable." } }));
+    act(() => emit({ type: "session_reset", data: { planTotal: 1 } }));
+
+    const row = await waitFor(() => {
+      const found = container.querySelectorAll(".plan-done");
+      expect(found).toHaveLength(1);
+      return found[0];
+    });
+    expect(row.textContent).toBe("\u2713Rate-limit failed logins \u00b7 Approved");
+    expect(row.getAttribute("role")).toBe("status");
+    const helper = container.querySelector('[data-kind="autopilot"]');
+    expect(helper?.textContent).toContain("Plan looks solid. Approved it");
+    expect(helper?.textContent).toContain("Corpus unavailable.");
+    expect(
+      row.compareDocumentPosition(helper as Element) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Review plan" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Accept" })).toBeNull();
+    // Helper decided: nothing was accepted or sent from this window.
+    expect(accepts).not.toHaveBeenCalled();
+    expect(prompts).not.toHaveBeenCalled();
+  });
+
+  it("Autopilot rejected: Helper sends the plan back and no approved row shows", async () => {
+    const { emit } = harness("ok");
+    const { container } = render(<App />);
+    await openNamed(emit);
+
+    act(() => emit({ type: "plan_exit", data: { planPath: "/tmp/plan.md", content: NAMED } }));
+    act(() => emit({ type: "autopilot_prompted", data: { body: "Cover the lockout case." } }));
+
+    await waitFor(() =>
+      expect(container.querySelector('[data-kind="autopilot"]')?.textContent).toContain(
+        "Cover the lockout case.",
+      ),
+    );
+    expect(container.querySelector(".plan-done")).toBeNull();
+    expect(container.textContent).not.toContain("\u00b7 Approved");
+    expect(screen.queryByRole("dialog", { name: "Review plan" })).toBeNull();
+  });
+
+  it("the iPhone keeps its sentence and gets no waiting line", async () => {
+    document.documentElement.classList.add("platform-ios");
+    try {
+      const { prompts, emit } = harness("ok");
+      const { container } = render(<App />);
+      const dialog = await openNamed(emit);
+      expect(dialog.querySelector(".plan-review-status")).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+
+      await waitFor(() => expect(prompts).toHaveBeenCalledTimes(1));
+      expect(container.querySelector(".plan-done")).toBeNull();
+      expect(screen.getByText("Plan accepted. Implementing it now.")).toBeTruthy();
+    } finally {
+      document.documentElement.classList.remove("platform-ios");
+    }
+  });
+});

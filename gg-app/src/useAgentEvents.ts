@@ -27,11 +27,12 @@ import {
 } from "./ask-user";
 import { formatTokenCount } from "./ActivityBar";
 import { type LiveToolEntry, LIVE_TOOL_PANEL_ROWS } from "./LiveToolPanel";
-import { type SubAgentLine } from "./SubAgentFeed";
+import { firstLine, type SubAgentLine } from "./SubAgentFeed";
 import { playSound } from "./sounds";
 import { takeNewSecurityNotices, withSecurityRow } from "./security-notices";
 import { toast } from "./toast";
-import { findCompletedSteps, countPlanSteps } from "./plan-steps";
+import { findCompletedSteps, countPlanSteps, planTitle } from "./plan-steps";
+import { isPhone } from "./platform";
 import type { PendingAttachment } from "./attachments";
 import type { Item } from "./App";
 import { lastIssuedId } from "./transcript-item";
@@ -249,6 +250,9 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
   // canonical live-file count on session_reset; this content supplies the fallback
   // count when connected to an older sidecar.
   const planReviewContentRef = useRef<string | null>(null);
+  // The rows an Autopilot approval leaves. The sidecar sends session_reset right
+  // behind the approval, which empties the transcript; that reset puts them back.
+  const approvedPlanRowsRef = useRef<Item[] | null>(null);
   // Which pre-final hooks are armed: a stop right now would inject one of them,
   // so the text the model is streaming is a candidate final answer that hook
   // will replace. Hold it in `heldTextRef` instead of painting it — the sidecar
@@ -445,6 +449,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
         }
         return next.slice(-12);
       };
+      const result = firstLine(snapshot.error ?? snapshot.output);
       const updateAgent = (agent: SubAgentLine): SubAgentLine => ({
         ...agent,
         status,
@@ -452,6 +457,22 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
         tokenUsage: snapshot.token_usage,
         durationMs: snapshot.elapsed_ms,
         activities: appendActivities(agent.activities),
+        agentType: snapshot.agent_name ?? agent.agentType,
+        result: result ?? agent.result,
+      });
+      const newAgent = (): SubAgentLine => ({
+        toolCallId: snapshot.agent_id,
+        agentName: snapshot.task_name,
+        status,
+        async: true,
+        activities: appendActivities([]),
+        toolUseCount: snapshot.tool_use_count,
+        tokenUsage: snapshot.token_usage,
+        durationMs: snapshot.elapsed_ms,
+        agentType: snapshot.agent_name,
+        result,
+        // Elapsed is a length of time, so the host's clock need not agree with this one.
+        startedAt: Date.now() - snapshot.elapsed_ms,
       });
       const mappedGroupId = subagentGroupByAgentRef.current.get(snapshot.agent_id);
       const activeGroupId = subagentGroupIdRef.current;
@@ -465,18 +486,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
         pushItem({
           kind: "subagent_group",
           id: groupId,
-          agents: [
-            {
-              toolCallId: snapshot.agent_id,
-              agentName: snapshot.task_name,
-              status,
-              async: true,
-              activities: appendActivities([]),
-              toolUseCount: snapshot.tool_use_count,
-              tokenUsage: snapshot.token_usage,
-              durationMs: snapshot.elapsed_ms,
-            },
-          ],
+          agents: [newAgent()],
         });
       } else {
         setItems((previous) =>
@@ -489,19 +499,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
                 ? item.agents.map((agent) =>
                     agent.toolCallId === snapshot.agent_id ? updateAgent(agent) : agent,
                   )
-                : [
-                    ...item.agents,
-                    {
-                      toolCallId: snapshot.agent_id,
-                      agentName: snapshot.task_name,
-                      status,
-                      async: true,
-                      activities: appendActivities([]),
-                      toolUseCount: snapshot.tool_use_count,
-                      tokenUsage: snapshot.token_usage,
-                      durationMs: snapshot.elapsed_ms,
-                    },
-                  ],
+                : [...item.agents, newAgent()],
             };
           }),
         );
@@ -576,6 +574,8 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
 
   const handleEvent = useCallback(
     (e: SidecarEvent) => {
+      // Only the reset right behind an approval may put its rows back.
+      if (e.type !== "session_reset") approvedPlanRowsRef.current = null;
       handleActivityEvent?.(e);
       // Ken (mentor) events are owned by the useKenMentor hook; delegate and
       // early-return so they never touch the build-session handling below.
@@ -721,13 +721,17 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
           // Sub-agents also get a persistent, live feed in the transcript so the
           // user can watch parallel delegations by name + what each is doing.
           if (name === "subagent") {
+            const agentName = typeof args.agent === "string" ? args.agent : undefined;
             const newAgent: SubAgentLine = {
               toolCallId,
-              agentName: typeof args.agent === "string" ? args.agent : undefined,
+              agentName,
               status: "running",
               activities: [],
               toolUseCount: 0,
               tokenUsage: { input: 0, output: 0 },
+              agentType: agentName,
+              task: firstLine(args.task),
+              startedAt: Date.now(),
             };
             const groupId = subagentGroupIdRef.current;
             if (groupId !== null) {
@@ -817,6 +821,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
                           status: isError ? ("error" as const) : ("done" as const),
                           durationMs: durationMs ?? a.durationMs,
                           tokenUsage: finalTokens ?? a.tokenUsage,
+                          result: firstLine(result) ?? a.result,
                         }
                       : a,
                   ),
@@ -1180,23 +1185,41 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
         case "plan_review":
           openPlanReview(d);
           break;
-        case "autopilot_plan_accepted":
+        case "autopilot_plan_accepted": {
           // Keep an approval-time fallback for older sidecars, close the review
           // modal, and render the approved marker. Current sidecars override this
           // fallback with the canonical live-file count on session_reset.
-          pendingPlanTotalRef.current = planReviewContentRef.current
-            ? countPlanSteps(planReviewContentRef.current)
-            : 0;
+          const approvedPlan = planReviewContentRef.current;
+          pendingPlanTotalRef.current = approvedPlan ? countPlanSteps(approvedPlan) : 0;
           planReviewContentRef.current = null;
           setPlanReview(null);
           endStreamingText();
-          pushItem({
+          const helperRow = (): Item => ({
             kind: "autopilot",
             id: nextId(),
             phase: "plan_approved",
             reason: typeof d.reason === "string" ? d.reason : undefined,
           });
+          // The iPhone keeps Helper's row alone, and loses it to the reset as before.
+          if (isPhone()) {
+            pushItem(helperRow());
+            break;
+          }
+          // An approval is an approval: the same row a manual Accept leaves, with
+          // Helper's line (who approved, and any limitation) kept under it.
+          const approvedRows: Item[] = [
+            {
+              kind: "plan_decision",
+              id: nextId(),
+              decision: "accepted",
+              title: (approvedPlan && planTitle(approvedPlan)) ?? "Plan",
+            },
+            helperRow(),
+          ];
+          for (const row of approvedRows) pushItem(row);
+          approvedPlanRowsRef.current = approvedRows;
           break;
+        }
         case "autopilot_prompted":
           // Autopilot-only plan revision path: Ken rejected/refined the plan and
           // the sidecar injected a revision prompt into GG Coder. Close the
@@ -1390,7 +1413,8 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
           // Its row is going away with the transcript; nothing left to show.
           if (streamingIdRef.current !== null) liveText.release(streamingIdRef.current);
           stickToBottomRef.current = true;
-          setItems([]);
+          setItems(approvedPlanRowsRef.current ?? []);
+          approvedPlanRowsRef.current = null;
           // The empty transcript must show the welcome screen, not the previous
           // run's status (for example "cancelled").
           setStatus("ready");

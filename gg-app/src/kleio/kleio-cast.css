@@ -1,0 +1,2703 @@
+/* Specialists as a cast (CastList.tsx), on the desktop: characters standing on
+   a lit shelf, the selected one in a spotlight with its profile underneath,
+   the form that makes or changes one (CastForm.tsx, CastSchedules.tsx), and a
+   group's room (CastRoom.tsx). Groups stand on the same shelf (CastGroups.tsx)
+   and are made in the same form (CastGroupForm.tsx).
+   Built from the redesign mockup (specialists/b-cast). The tier sets the sizes;
+   the page sets how many places the widest shelf has (--cols), and the profile
+   which place its pointer is under (--col). The iPhone never draws this. */
+
+.cast-page {
+  --rounded: ui-rounded, "SF Pro Rounded", -apple-system, sans-serif;
+  --inset: 44px;
+  --slot: min(var(--slot-max), calc((100cqw - 2 * var(--inset)) / var(--cols, 1)));
+  --size: min(var(--size-max), calc(var(--slot) * var(--size-k)));
+  --floor: calc(var(--pad-b) + var(--name-gap) + var(--name-lh) + var(--state-lh));
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  container-type: inline-size;
+}
+.cast-page > * {
+  flex-shrink: 0;
+}
+/* Room under the page for the Specialists/Groups switcher (a spacer: WebKit
+   leaves a flex column's bottom padding out of what it scrolls). */
+.kleio-screen.has-dock .cast-page::after {
+  content: "";
+  flex: 0 0 96px;
+}
+.cast-page :where(h2, h3, p, ol, ul) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* The reset above would take the error's own padding. */
+.cast-error {
+  margin: 12px var(--inset) 0;
+  padding: 9px 12px;
+}
+.cast-page > .list-skeleton {
+  padding: 12px var(--inset) 0;
+}
+.cast-none {
+  color: var(--text-muted);
+}
+
+/* Solo: one character, large, with a place for the next. */
+.cast-page[data-tier="solo"] {
+  --slot-max: 180px;
+  --size-max: 124px;
+  --size-k: 0.8;
+  --row-h: 300px;
+  --pad-b: 8px;
+  --name-gap: 10px;
+  --name-fs: 15px;
+  --name-lh: 19px;
+  --state-fs: 11.5px;
+  --state-lh: 15px;
+  --cone-w: 230px;
+  --cone-h: 270px;
+  --cone-foot: 18px;
+  --bubble-gap: 16px;
+  --prof-gap: 18px;
+}
+/* One shelf, up to 9. */
+.cast-page[data-tier="one"] {
+  --slot-max: 150px;
+  --size-max: 84px;
+  --size-k: 0.7;
+  --row-h: 300px;
+  --pad-b: 8px;
+  --name-gap: 10px;
+  --name-fs: 14px;
+  --name-lh: 18px;
+  --state-fs: 11.5px;
+  --state-lh: 15px;
+  --cone-w: 210px;
+  --cone-h: 260px;
+  --cone-foot: 18px;
+  --bubble-gap: 16px;
+  --prof-gap: 18px;
+}
+/* Two shelves, 10 to 24. */
+.cast-page[data-tier="two"] {
+  --slot-max: 150px;
+  --size-max: 58px;
+  --size-k: 0.72;
+  --row-h: 142px;
+  --pad-b: 4px;
+  --name-gap: 7px;
+  --name-fs: 12.5px;
+  --name-lh: 16px;
+  --state-fs: 11px;
+  --state-lh: 14px;
+  --cone-w: calc(var(--slot) * 1.6);
+  --cone-h: calc(var(--row-h) - var(--floor) + 6px);
+  --cone-foot: 10px;
+  --bubble-gap: 7px;
+  --prof-gap: 12px;
+}
+/* Three shelves from 25; past 36 the shelves scroll. */
+.cast-page[data-tier="crowd"] {
+  --slot-max: 130px;
+  --size-max: 46px;
+  --size-k: 0.6;
+  --row-h: 116px;
+  --pad-b: 3px;
+  --name-gap: 6px;
+  --name-fs: 12px;
+  --name-lh: 15px;
+  --state-fs: 10.5px;
+  --state-lh: 13px;
+  --cone-w: calc(var(--slot) * 1.6);
+  --cone-h: calc(var(--row-h) - var(--floor) + 6px);
+  --cone-foot: 10px;
+  --bubble-gap: 6px;
+  --prof-gap: 10px;
+}
+
+/* ── the header's counts ── */
+.cast-pills {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.cast-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.cast-pill.is-live {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary-hi);
+}
+.cast-pill.is-failed {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+.cast-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: cast-breathe 2.6s var(--ease-glow) infinite;
+}
+@keyframes cast-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 22%, transparent);
+  }
+}
+
+/* ── the shelves ── */
+.cast {
+  padding: var(--cast-top, 0px) var(--inset) 0;
+}
+.cast[data-scroll] {
+  max-height: calc(var(--row-h) * 3 + var(--cast-top, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+}
+/* Under the fade at the foot of the shelves, on its own line. */
+.cast-more {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  margin: 4px 0 0;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.cast-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--n, var(--cols)), var(--slot));
+  justify-content: center;
+  height: var(--row-h);
+}
+.cast-shelf {
+  position: absolute;
+  left: calc(20px - var(--inset));
+  right: calc(20px - var(--inset));
+  bottom: var(--floor);
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2) 14%,
+    rgba(255, 255, 255, 0.2) 86%,
+    transparent
+  );
+}
+.cast-shelf::after {
+  content: "";
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  top: 1px;
+  height: 64px;
+  background: radial-gradient(
+    50% 100% at 50% 0,
+    color-mix(in srgb, var(--glow) 26%, transparent),
+    transparent 72%
+  );
+}
+/* Lower shelves get a quieter glow, so a crowd doesn't read as red. */
+.cast-row + .cast-row .cast-shelf::after {
+  opacity: 0.55;
+}
+.cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-shelf::after {
+  height: 44px;
+}
+
+/* ── one character ── */
+.cast-actor {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  padding: 0 4px var(--pad-b);
+  border: 0;
+  border-radius: 14px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.cast-actor:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-actor {
+  padding-inline: 1px;
+}
+/* The selected character stands in a soft spotlight. */
+.cast-actor::before,
+.cast-slot.is-hero::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--floor) - var(--cone-foot));
+  width: var(--cone-w);
+  height: var(--cone-h);
+  transform: translateX(-50%);
+  opacity: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 10% at 50% 93%, rgba(255, 236, 236, 0.16), transparent 100%),
+    linear-gradient(to bottom, rgba(255, 236, 236, 0), rgba(255, 236, 236, 0.07));
+  clip-path: polygon(38% 0, 62% 0, 100% 100%, 0 100%);
+  transition: opacity 600ms var(--ease-glow);
+}
+.cast-actor[aria-pressed="true"]::before,
+.cast-slot.is-hero::before {
+  opacity: 1;
+}
+.cast-figure {
+  position: relative;
+  width: var(--size);
+  height: var(--size);
+  transition: transform 400ms var(--ease-out);
+}
+/* Each body's own foot meets the shelf. */
+.cast-figure .blob-av {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  translate: 0 var(--foot, 8%);
+}
+.cast-figure::after {
+  content: "";
+  position: absolute;
+  left: 16%;
+  right: 16%;
+  bottom: -5px;
+  height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.7), transparent);
+}
+.cast-actor:hover .cast-figure {
+  transform: translateY(-3px);
+}
+/* Working characters bounce, each on its own beat. */
+.cast-actor .blob-av.is-live .blob-av-body {
+  animation-delay: var(--bd, 0s);
+}
+.cast-actor.is-paused .cast-figure .blob-av {
+  filter: saturate(0.45) brightness(0.8);
+}
+.cast-actor.is-add .cast-figure::after {
+  display: none;
+}
+.cast-name,
+.cast-state {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cast-name {
+  margin-top: var(--name-gap);
+  font: 600 var(--name-fs) / var(--name-lh) var(--rounded);
+  color: var(--text-secondary);
+}
+.cast-state {
+  font-size: var(--state-fs);
+  line-height: var(--state-lh);
+  color: var(--text-dim);
+}
+.cast-actor[aria-pressed="true"] .cast-name {
+  color: var(--text);
+}
+.cast-actor.is-working .cast-state {
+  color: var(--primary-hi);
+}
+.cast-actor.is-failed .cast-state {
+  color: var(--primary);
+}
+.cast-actor.is-add .cast-name {
+  color: var(--text-muted);
+}
+
+/* Sleepers. In a crowd their z's hold still. */
+.cast-zz {
+  position: absolute;
+  z-index: 3;
+  left: 60%;
+  bottom: calc(var(--floor) + var(--size) - 4px);
+  font: 600 14px var(--rounded);
+  color: var(--text-dim);
+}
+.cast-zz i {
+  display: inline-block;
+  font-style: normal;
+  animation: cast-zz 3.2s var(--ease-glow) infinite;
+}
+.cast-zz i + i {
+  margin-left: 1px;
+  font-size: 11px;
+  animation-delay: 1.6s;
+}
+@keyframes cast-zz {
+  0% {
+    opacity: 0;
+    transform: translate(0, 4px);
+  }
+  30%,
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(5px, -8px);
+  }
+}
+.cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-zz {
+  left: 62%;
+  bottom: calc(var(--floor) + var(--size) - 6px);
+  font-size: 11px;
+}
+.cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-zz i {
+  animation: none;
+  opacity: 0.75;
+}
+
+/* What a character is saying: only the ones with something to say. One line
+   each, since a wrapped bubble would climb into the shelf above; the whole
+   reason is in the profile, so a long one ends in an ellipsis. */
+.cast-bubble {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: calc(var(--floor) + var(--size) + var(--bubble-gap));
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(var(--slot) * 2.2);
+  height: 28px;
+  padding: 0 11px;
+  transform: translateX(-50%);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+.cast-bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  transform: translateX(-50%) rotate(45deg);
+  border-right: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--surface-2);
+}
+.cast-bubble > svg {
+  flex: none;
+}
+.cast-btxt {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cast-actor.is-failed .cast-bubble {
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--border-strong));
+  color: var(--text);
+}
+.cast-actor.is-failed .cast-bubble > svg {
+  color: var(--primary);
+}
+.cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-bubble {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 11.5px;
+}
+/* Neighbours who both need you lean apart, and the ends of a shelf lean in,
+   so no two bubbles overlap and none leaves the window. */
+.cast-actor.is-failed:has(+ .cast-actor.is-failed) .cast-bubble,
+.cast-actor.is-failed:last-of-type .cast-bubble {
+  transform: translateX(calc(-100% + 22px));
+}
+.cast-actor.is-failed:has(+ .cast-actor.is-failed) .cast-bubble::after,
+.cast-actor.is-failed:last-of-type .cast-bubble::after {
+  left: calc(100% - 22px);
+}
+.cast-actor.is-failed + .cast-actor.is-failed .cast-bubble,
+.cast-actor.is-failed:first-of-type .cast-bubble {
+  transform: translateX(-22px);
+}
+.cast-actor.is-failed + .cast-actor.is-failed .cast-bubble::after,
+.cast-actor.is-failed:first-of-type .cast-bubble::after {
+  left: 22px;
+}
+/* A third in a row keeps only its sign; its words are in its profile. */
+.cast-actor.is-failed + .cast-actor.is-failed:has(+ .cast-actor.is-failed) .cast-bubble {
+  transform: translateX(-50%);
+}
+.cast-actor.is-failed + .cast-actor.is-failed:has(+ .cast-actor.is-failed) .cast-bubble::after {
+  left: 50%;
+}
+.cast-actor.is-failed + .cast-actor.is-failed:has(+ .cast-actor.is-failed) .cast-btxt {
+  display: none;
+}
+/* A pair at the end of a shelf: the neighbour leans away from the edge (the
+   pair rules above), and the one at the edge keeps only its sign. */
+.cast-actor.is-failed:first-of-type:has(+ .cast-actor.is-failed) .cast-bubble,
+.cast-actor.is-failed + .cast-actor.is-failed:last-of-type .cast-bubble {
+  transform: translateX(-50%);
+}
+.cast-actor.is-failed:first-of-type:has(+ .cast-actor.is-failed) .cast-bubble::after,
+.cast-actor.is-failed + .cast-actor.is-failed:last-of-type .cast-bubble::after {
+  left: 50%;
+}
+.cast-actor.is-failed:first-of-type:has(+ .cast-actor.is-failed) .cast-btxt,
+.cast-actor.is-failed + .cast-actor.is-failed:last-of-type .cast-btxt {
+  display: none;
+}
+
+/* ── the selected character's profile, under the shelves ── */
+.cast-profile {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 1.3fr) minmax(0, 1fr);
+  column-gap: 26px;
+  margin: var(--prof-gap, 18px) var(--inset) 0;
+  padding: 20px 24px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  background: #130f10;
+}
+/* The pointer sits under the selected character's place; a short shelf is
+   centred, so --col can be a half. Only the front shelf is within reach. */
+.cast-profile::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: calc((100% - var(--slot) * var(--cols)) / 2 + var(--slot) * (var(--col, 0) + 0.5));
+  width: 12px;
+  height: 12px;
+  transform: translateX(-50%) rotate(45deg);
+  border-top: 1px solid var(--border-strong);
+  border-left: 1px solid var(--border-strong);
+  background: #130f10;
+  opacity: var(--notch, 1);
+  transition: left 420ms var(--ease-out);
+}
+.cast-p-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cast-p-head h2 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 650 26px/1.1 var(--rounded);
+  color: var(--text);
+}
+.cast-p-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.cast-p-job {
+  margin-top: 12px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.cast-p-brain {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.cast-p-brain > svg {
+  flex: none;
+}
+.cast-p-col {
+  min-width: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--border);
+}
+.cast-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cast-p-col .cast-label + * {
+  margin-top: 10px;
+}
+.cast-p-col * + .cast-label {
+  margin-top: 16px;
+}
+.cast-p-note {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.cast-tools {
+  font-size: 12.5px;
+}
+.cast-tools .tool-row {
+  padding: 4px 0;
+}
+.cast-tools .tool-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The app's tool rows (ToolRow sets its colours inline), in the shelf's
+   palette: crimson only for the call under way. */
+.cast-tools .tool-dot {
+  color: var(--text-dim) !important;
+  font-size: 8px;
+}
+.cast-tools .tool-dot.blink {
+  color: var(--primary) !important;
+}
+.cast-tools .tool-line > span {
+  color: var(--text-muted) !important;
+}
+.cast-tools .tool-line > span:first-child {
+  color: var(--text-secondary) !important;
+}
+.cast-tools .kleio-activity-time.is-live {
+  color: var(--primary-hi);
+}
+.cast-runs li,
+.cast-s-last {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 7px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.cast-runs li {
+  padding: 3px 0;
+}
+.cast-runs svg,
+.cast-s-last svg {
+  margin-top: 3px;
+}
+.cast-runs li.is-failed {
+  color: var(--text-secondary);
+}
+.cast-runs li.is-failed svg {
+  color: var(--primary);
+}
+.cast-runs time,
+.cast-s-last time {
+  margin-right: 4px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.cast-s-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.cast-s-when {
+  margin-top: 1px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cast-scheds li + li {
+  margin-top: 8px;
+}
+.cast-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  vertical-align: 1px;
+}
+.cast-p-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+/* A button's own word on what it did: that the run started, or why it didn't. */
+.cast-p-started {
+  margin-left: 4px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+/* The page's reset of every <p> would take the error's own padding. */
+.cast-profile > .cast-p-error {
+  grid-column: 1 / -1;
+  margin: 14px 0 0;
+  padding: 9px 12px;
+}
+.cast-profile > .cast-p-error + .cast-p-actions {
+  margin-top: 12px;
+}
+/* Three shelves leave less room, so the profile tightens: the state sits
+   beside the name, and a wider first column keeps the job to two lines. */
+.cast-page[data-tier="crowd"] .cast-profile {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  padding: 13px 20px 11px;
+}
+.cast-page[data-tier="crowd"] .cast-p-id {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  align-content: start;
+  column-gap: 12px;
+}
+.cast-page[data-tier="crowd"] .cast-p-head h2 {
+  font-size: 21px;
+}
+.cast-page[data-tier="crowd"] .cast-p-head .blob-av {
+  width: 30px;
+  height: 30px;
+}
+.cast-page[data-tier="crowd"] .cast-p-state {
+  margin-top: 0;
+}
+.cast-page[data-tier="crowd"] :is(.cast-p-job, .cast-p-brain) {
+  grid-column: 1 / -1;
+}
+.cast-page[data-tier="crowd"] .cast-p-job {
+  display: -webkit-box;
+  margin-top: 8px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.cast-page[data-tier="crowd"] .cast-p-brain {
+  margin-top: 6px;
+}
+.cast-page[data-tier="crowd"] .cast-p-col .cast-label + * {
+  margin-top: 7px;
+}
+.cast-page[data-tier="crowd"] .cast-p-col * + .cast-label {
+  margin-top: 11px;
+}
+.cast-page[data-tier="crowd"] .cast-p-actions {
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+/* ── the first run: one blob in the spotlight, places waiting either side ── */
+.cast-first {
+  --size: 84px;
+  --floor: 51px;
+  --cone-w: 210px;
+  --cone-h: 260px;
+  --cone-foot: 18px;
+  --bubble-gap: 16px;
+}
+.cast-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: stretch;
+  height: 330px;
+  padding: 0 calc(var(--inset) + 90px);
+}
+.cast-stage .cast-shelf {
+  left: 20px;
+  right: 20px;
+}
+.cast-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 0 var(--floor);
+}
+.cast-slot.is-place {
+  opacity: 0.7;
+}
+.cast-slot.is-place.is-far {
+  opacity: 0.4;
+}
+.cast-slot.is-place .cast-figure::after {
+  display: none;
+}
+.cast-slot.is-hero {
+  --size: 112px;
+}
+.cast-slot.is-hero .cast-bubble {
+  max-width: none;
+  height: auto;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text);
+}
+.cast-bob {
+  animation: cast-bob 4.8s var(--ease-glow) infinite;
+}
+@keyframes cast-bob {
+  50% {
+    transform: translateY(-5px);
+  }
+}
+.cast-welcome {
+  display: grid;
+  justify-items: center;
+  margin-top: 14px;
+  padding: 0 var(--inset);
+  text-align: center;
+}
+.cast-welcome h2 {
+  font: 650 28px/1.15 var(--rounded);
+  color: var(--text);
+}
+.cast-welcome p {
+  max-width: 470px;
+  margin-top: 8px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.cast-welcome .metal-button {
+  margin-top: 20px;
+}
+.cast-btn-lg {
+  height: 38px;
+  padding: 0 18px 0 14px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+/* Three jobs to start from, each with a waiting place's outline. */
+.cast-examples {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+}
+.cast-ex-label {
+  margin-right: 4px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.cast-example {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background 240ms var(--ease-glow),
+    color 240ms var(--ease-glow);
+}
+.cast-example:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+.cast-welcome .cast-tip {
+  max-width: none;
+  margin-top: 16px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.cast-tip kbd {
+  font: 500 11px/1 var(--sans);
+  letter-spacing: 0.04em;
+}
+/* A short window (720 high): the stage gives up the empty air above the
+   bubble, so the example jobs and the tip stay clear of the switcher. */
+@media (max-height: 770px) {
+  .cast-first {
+    --cone-h: 228px;
+  }
+  .cast-first .cast-stage {
+    height: 282px;
+  }
+}
+
+/* ── groups on the shelf (CastGroups.tsx): no mockup draws them, so they
+   use the cast's own parts. A group is its first members standing together,
+   each on its own foot: the first in front, the next two a step behind. ── */
+.cast-huddle {
+  position: absolute;
+  inset: 0;
+}
+.cast-h {
+  position: absolute;
+  bottom: 0;
+  aspect-ratio: 1;
+}
+.cast-troupe[data-n="1"] .cast-h {
+  left: 7%;
+  width: 86%;
+}
+.cast-troupe[data-n="2"] .cast-h {
+  width: 66%;
+}
+.cast-troupe[data-n="2"] .cast-h:first-child {
+  left: -8%;
+}
+.cast-troupe[data-n="2"] .cast-h:last-child {
+  left: 42%;
+  z-index: 1;
+}
+.cast-troupe[data-n="3"] .cast-h {
+  bottom: 6%;
+  width: 54%;
+  filter: brightness(0.86);
+}
+.cast-troupe[data-n="3"] .cast-h:first-child {
+  left: 19%;
+  bottom: 0;
+  z-index: 2;
+  width: 62%;
+  filter: none;
+}
+.cast-troupe[data-n="3"] .cast-h:nth-child(2) {
+  left: -14%;
+}
+.cast-troupe[data-n="3"] .cast-h:nth-child(3) {
+  left: 60%;
+  z-index: 1;
+}
+/* Two or three stand wider than one, and so does the shadow under them. */
+.cast-troupe:is([data-n="2"], [data-n="3"]) .cast-figure::after {
+  left: -6%;
+  right: -6%;
+}
+.cast-troupe[data-n="0"] .cast-figure::after {
+  display: none;
+}
+/* The profile: what was last said, then who is in the group. */
+.cast-profile.is-group {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.5fr) minmax(0, 1fr);
+}
+.cast-g-who {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.cast-g-who time {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cast-p-col .cast-g-text {
+  display: -webkit-box;
+  margin-top: 5px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.cast-page[data-tier="crowd"] .cast-g-text {
+  -webkit-line-clamp: 2;
+}
+.cast-g-members {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+.cast-g-members li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.cast-g-members li > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cast-g-members li.is-live {
+  color: var(--primary-hi);
+}
+.cast-g-members + .cast-p-note {
+  margin-top: 10px;
+}
+/* No groups yet: your specialists on the stage, with no spotlight or bubble
+   over them, so the stage is lower than the specialists' first run. */
+.cast-first.is-group .cast-stage {
+  grid-template-columns: repeat(var(--n), minmax(0, 150px));
+  justify-content: center;
+  height: 236px;
+}
+
+/* ── a wide window ── */
+@media (min-width: 1400px) {
+  .cast-page {
+    --inset: max(60px, calc((100cqw - 1400px) / 2));
+  }
+  .cast-page[data-tier="solo"] {
+    --slot-max: 240px;
+    --size-max: 172px;
+    --row-h: 500px;
+    --name-gap: 12px;
+    --name-fs: 17px;
+    --name-lh: 22px;
+    --state-fs: 12.5px;
+    --state-lh: 16px;
+    --cone-w: 320px;
+    --cone-h: 400px;
+    --prof-gap: 32px;
+  }
+  .cast-page[data-tier="one"] {
+    --slot-max: 200px;
+    --size-max: 140px;
+    --row-h: 500px;
+    --name-fs: 16px;
+    --name-lh: 20px;
+    --state-fs: 12.5px;
+    --state-lh: 16px;
+    --cone-w: 300px;
+    --cone-h: 380px;
+    --prof-gap: 32px;
+  }
+  .cast-page[data-tier="two"] {
+    --slot-max: 180px;
+    --size-max: 100px;
+    --row-h: 210px;
+    --cast-top: 36px;
+    --pad-b: 6px;
+    --name-gap: 9px;
+    --name-fs: 14.5px;
+    --name-lh: 18px;
+    --state-fs: 12px;
+    --state-lh: 15px;
+    --bubble-gap: 10px;
+    --prof-gap: 22px;
+  }
+  .cast-page[data-tier="crowd"] {
+    --slot-max: 170px;
+    --size-max: 80px;
+    --row-h: 172px;
+    --cast-top: 12px;
+    --pad-b: 5px;
+    --name-gap: 8px;
+    --name-fs: 14px;
+    --name-lh: 18px;
+    --state-fs: 11.5px;
+    --state-lh: 15px;
+    --bubble-gap: 8px;
+    --prof-gap: 20px;
+  }
+  .cast-zz {
+    font-size: 19px;
+  }
+  .cast-zz i + i {
+    font-size: 15px;
+  }
+  .cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-zz {
+    font-size: 14px;
+  }
+  .cast-bubble {
+    height: 32px;
+    padding: 0 13px;
+    border-radius: 16px;
+    font-size: 13px;
+  }
+  .cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-bubble {
+    height: 28px;
+    padding: 0 12px;
+    border-radius: 14px;
+    font-size: 12.5px;
+  }
+  .cast-profile {
+    padding: 26px 30px 20px;
+    column-gap: 34px;
+    border-radius: 24px;
+  }
+  .cast-p-head h2 {
+    font-size: 32px;
+  }
+  /* Its own picture only: a group's is three small ones (.blob-cluster). */
+  .cast-p-head > .blob-av {
+    width: 44px;
+    height: 44px;
+  }
+  .cast-p-job {
+    font-size: 14.5px;
+  }
+  .cast-p-col {
+    padding-left: 30px;
+  }
+  .cast-tools,
+  .cast-runs li,
+  .cast-s-last {
+    font-size: 13px;
+  }
+  .cast-first {
+    --size: 140px;
+    --floor: 54px;
+    --cone-w: 300px;
+    --cone-h: 380px;
+  }
+  .cast-stage {
+    height: 470px;
+  }
+  .cast-slot.is-hero {
+    --size: 150px;
+  }
+  .cast-welcome {
+    margin-top: 20px;
+  }
+  .cast-welcome h2 {
+    font-size: 34px;
+  }
+  .cast-welcome p {
+    max-width: 520px;
+    font-size: 16px;
+  }
+  .cast-first.is-group .cast-stage {
+    grid-template-columns: repeat(var(--n), minmax(0, 250px));
+    height: 336px;
+  }
+}
+
+/* ── blinking ──
+   Idle eyes blink on separate clocks, so a shelf never blinks in step: eight
+   lively ones (5 to 9 s) for a single shelf, eight calm ones (11 to 19 s) from
+   ten specialists up. Every blink takes 0.36 s, as the app's 5.2 s blink does
+   (93% and 96% of it), whatever the period. */
+.cast-actor[data-clock="b1"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b1 5.2s ease-in-out -0.7s infinite;
+}
+@keyframes cast-blink-b1 {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b2"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b2 6.4s ease-in-out -3.9s infinite;
+}
+@keyframes cast-blink-b2 {
+  0%,
+  94.31%,
+  100% {
+    transform: scaleY(1);
+  }
+  96.75% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b3"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b3 7.1s ease-in-out -2.2s infinite;
+}
+@keyframes cast-blink-b3 {
+  0%,
+  94.87%,
+  100% {
+    transform: scaleY(1);
+  }
+  97.07% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b4"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b4 5.8s ease-in-out -4.6s infinite;
+}
+@keyframes cast-blink-b4 {
+  0%,
+  93.72%,
+  100% {
+    transform: scaleY(1);
+  }
+  96.41% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b5"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b5 7.9s ease-in-out -1.5s infinite;
+}
+@keyframes cast-blink-b5 {
+  0%,
+  95.39%,
+  100% {
+    transform: scaleY(1);
+  }
+  97.37% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b6"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b6 6.7s ease-in-out -5.3s infinite;
+}
+@keyframes cast-blink-b6 {
+  0%,
+  94.57%,
+  100% {
+    transform: scaleY(1);
+  }
+  96.9% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b7"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b7 8.6s ease-in-out -0.2s infinite;
+}
+@keyframes cast-blink-b7 {
+  0%,
+  95.77%,
+  100% {
+    transform: scaleY(1);
+  }
+  97.58% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b8"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b8 6.1s ease-in-out -2.9s infinite;
+}
+@keyframes cast-blink-b8 {
+  0%,
+  94.03%,
+  100% {
+    transform: scaleY(1);
+  }
+  96.59% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c1"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c1 11.3s ease-in-out -2.1s infinite;
+}
+@keyframes cast-blink-c1 {
+  0%,
+  96.78%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.16% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c2"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c2 13.7s ease-in-out -8.4s infinite;
+}
+@keyframes cast-blink-c2 {
+  0%,
+  97.34%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.48% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c3"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c3 12.4s ease-in-out -5s infinite;
+}
+@keyframes cast-blink-c3 {
+  0%,
+  97.06%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.32% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c4"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c4 16.9s ease-in-out -11.2s infinite;
+}
+@keyframes cast-blink-c4 {
+  0%,
+  97.85%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.77% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c5"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c5 14.6s ease-in-out -0.9s infinite;
+}
+@keyframes cast-blink-c5 {
+  0%,
+  97.51%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.58% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c6"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c6 18.3s ease-in-out -6.7s infinite;
+}
+@keyframes cast-blink-c6 {
+  0%,
+  98.01%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.86% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c7"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c7 15.2s ease-in-out -13.1s infinite;
+}
+@keyframes cast-blink-c7 {
+  0%,
+  97.61%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.63% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c8"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c8 17.5s ease-in-out -3.6s infinite;
+}
+@keyframes cast-blink-c8 {
+  0%,
+  97.92%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.81% {
+    transform: scaleY(0.12);
+  }
+}
+
+/* ── the form (CastForm.tsx): who it is on the left, what it does on the right ── */
+.cast-form {
+  --rounded: ui-rounded, "SF Pro Rounded", -apple-system, sans-serif;
+  --card: rgba(255, 255, 255, 0.028);
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* No specificity: the app's own notes and errors keep their spacing in here. */
+:where(.cast-form) :where(h2, p, ol) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cast-form :is(button, input, textarea):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.cast-form > .kleio-page-error {
+  margin-bottom: 6px;
+}
+.cast-creator {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.cast-creator-grid {
+  flex: none;
+  display: grid;
+  grid-template-columns: 384px minmax(0, 1fr);
+  column-gap: 22px;
+  padding: 6px 28px 18px 22px;
+}
+.cast-who {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+.cast-mini {
+  --size: 124px;
+  --floor: 26px;
+  --cone-w: 210px;
+  --cone-h: 176px;
+  --cone-foot: 18px;
+  position: relative;
+  flex: none;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  height: 196px;
+}
+.cast-mini .cast-slot.is-hero {
+  --size: 124px;
+  height: 100%;
+}
+.cast-mini .cast-shelf {
+  left: 40px;
+  right: 40px;
+}
+.cast-shuffle {
+  position: absolute;
+  right: 74px;
+  top: 74px;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface-1);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background 240ms var(--ease-glow),
+    color 240ms var(--ease-glow);
+}
+.cast-shuffle:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.cast-name-input {
+  width: 240px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 0;
+  outline: none;
+  background: none;
+  text-align: center;
+  font: 650 26px var(--rounded);
+  color: var(--text);
+}
+.cast-name-input::placeholder {
+  color: var(--text-dim);
+}
+.cast-name-input:focus,
+.cast-form .cast-name-input:focus-visible {
+  border-bottom-style: solid;
+  border-bottom-color: var(--text-secondary);
+  box-shadow: none;
+}
+
+/* The look and the brain. The rows are LookPicker's, drawn smaller. */
+.cast-pickers {
+  display: grid;
+  gap: 9px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 13px 16px 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--card);
+}
+.cast-pickers .kleio-look-row {
+  gap: 0;
+}
+.cast-pickers .kleio-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.cast-pickers .kleio-look-current {
+  margin-left: 0;
+  font: 500 12.5px var(--sans);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-secondary);
+}
+.cast-pickers .kleio-look-options {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+.cast-pickers .kleio-look-option {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 3px;
+  background: none;
+  transition: background 240ms var(--ease-glow);
+}
+.cast-pickers .kleio-look-option:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.cast-pickers .kleio-look-option:active {
+  transform: none;
+}
+.cast-pickers .kleio-look-option[aria-checked="true"] {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.78);
+}
+.cast-pickers .kleio-look-option:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.cast-pickers .kleio-look-option .blob-av {
+  width: 100%;
+  height: 100%;
+}
+.cast-pickers .is-colours .kleio-look-options {
+  gap: 3px;
+}
+.cast-pickers .is-colours .kleio-look-option {
+  width: 26px;
+  height: 26px;
+  padding: 2px;
+  border-radius: 9px;
+}
+.cast-brain {
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+.cast-brain .dropdown-trigger {
+  height: 34px;
+  padding: 0 10px 0 12px;
+  border-color: var(--border-strong);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 13.5px;
+  font-weight: 400;
+}
+.cast-form .dropdown-trigger {
+  box-shadow: none;
+}
+/* Both menus open upwards: their triggers sit near the foot of the window. */
+.cast-form .dropdown-menu {
+  --enter-y: 4px;
+  top: auto;
+  bottom: calc(100% + 6px);
+  transform-origin: bottom center;
+}
+.cast-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.cast-note > svg {
+  flex: none;
+}
+
+/* The job and the schedules. */
+.cast-what {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+  padding-top: 8px;
+}
+.cast-card {
+  min-width: 0;
+  padding: 15px 18px 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--card);
+}
+.cast-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 22px;
+}
+.cast-card-head .kleio-text-btn {
+  align-self: center;
+  margin-left: auto;
+}
+.cast-hint {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.cast-count {
+  margin-left: 8px;
+  color: var(--text-dim);
+}
+.cast-card > :is(.kleio-error, .kleio-note, .kleio-empty) {
+  margin: 10px 0 0;
+}
+.cast-job-text {
+  display: block;
+  width: 100%;
+  min-height: 87px;
+  max-height: 38vh;
+  margin-top: 10px;
+  padding: 11px 13px;
+  resize: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  outline: none;
+  background: rgba(0, 0, 0, 0.2);
+  font: 14px/1.5 var(--sans);
+  color: var(--text);
+}
+.cast-job-text::placeholder,
+.cast-se :is(input, textarea)::placeholder {
+  color: var(--text-dim);
+}
+.cast-card .kleio-count-line {
+  margin: 6px 0 0;
+}
+.cast-card .kleio-examples {
+  margin-top: 10px;
+}
+.cast-card .kleio-setting {
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+}
+.cast-card .kleio-setting-text {
+  gap: 1px;
+}
+.cast-card .kleio-setting-desc {
+  line-height: 1.4;
+}
+.cast-switch {
+  position: relative;
+  flex: none;
+  display: inline-block;
+  width: 30px;
+  height: 18px;
+}
+.cast-switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.cast-switch span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  pointer-events: none;
+  transition: background 240ms var(--ease-glow);
+}
+.cast-switch span::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: transform 240ms var(--ease-glow);
+}
+.cast-switch input:checked + span {
+  background: var(--kleio-crimson);
+}
+.cast-switch input:checked + span::after {
+  transform: translateX(12px);
+}
+.cast-form .cast-switch input:focus-visible + span {
+  box-shadow: var(--focus-ring);
+}
+
+/* This week: a mark where each schedule falls. */
+.cast-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 12px;
+}
+.cast-week li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  min-height: 82px;
+  padding: 8px 3px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.cast-wd {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.cast-mark {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 5px 8px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  font: 650 13px var(--sans);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text);
+  cursor: pointer;
+}
+.cast-mark + .cast-mark {
+  margin-top: 4px;
+}
+.cast-mark small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.cast-mark.is-auto {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.4);
+  background: transparent;
+}
+.cast-mark.is-off {
+  opacity: 0.5;
+}
+.cast-mark.is-sel {
+  border-style: solid;
+  border-color: transparent;
+  background: var(--text);
+  color: #170e0f;
+}
+.cast-mark.is-sel small {
+  color: #5a4c4e;
+}
+/* Under the week: a repeat, or a one-off in another week. */
+.cast-loose {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.cast-loose .cast-mark {
+  max-width: 200px;
+  margin-top: 0;
+}
+.cast-legend {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.cast-key {
+  flex: none;
+  width: 16px;
+  height: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.4);
+  border-radius: 3px;
+}
+
+/* The selected schedule, open for editing. */
+.cast-se {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.cast-se-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cast-se-name {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  outline: none;
+  background: none;
+  font: 600 14px var(--sans);
+  color: var(--text);
+}
+.cast-se-next,
+.cast-se-late {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cast-se-late {
+  margin-top: 4px;
+  white-space: normal;
+}
+.cast-se-prompt {
+  display: block;
+  width: 100%;
+  height: 32px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.03);
+  font: 13px/18px var(--sans);
+  color: var(--text);
+}
+.cast-se-when {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.cast-seg {
+  display: inline-grid;
+  grid-template-columns: repeat(4, auto);
+  padding: 2px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.cast-seg button {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: 12.5px var(--sans);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.cast-seg [aria-checked="true"] {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.cast-days {
+  display: flex;
+  gap: 3px;
+}
+.cast-days button {
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: none;
+  font: 600 11.5px var(--sans);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.cast-days [aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--text);
+  color: #170e0f;
+}
+.cast-field,
+.cast-se-when .dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: none;
+  font: 13px var(--sans);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text);
+  color-scheme: dark;
+}
+/* The time is typed; without the clock button it fits beside the days. */
+input[type="time"].cast-field::-webkit-calendar-picker-indicator {
+  display: none;
+}
+.cast-se-when .dropdown-menu {
+  right: auto;
+  min-width: 170px;
+}
+.cast-se-foot {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 10px;
+}
+.cast-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.cast-grow {
+  flex: 1;
+}
+.cast-se .kleio-text-btn {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.cast-se .kleio-text-btn:hover {
+  color: var(--text);
+}
+.cast-se .kleio-text-btn.is-danger,
+.cast-se .kleio-text-btn.is-danger:hover {
+  color: var(--primary);
+}
+.cast-se-save {
+  height: 26px;
+  margin: 0 4px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: #f6f1f1;
+  font: 600 12px var(--sans);
+  color: #170e0f;
+  cursor: pointer;
+}
+.cast-se-save:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.cast-se > .kleio-error {
+  margin: 10px 0 0;
+}
+
+@media (min-width: 1400px) {
+  .cast-creator-grid {
+    grid-template-columns: 480px minmax(0, 640px);
+    justify-content: center;
+    column-gap: 56px;
+    margin-block: auto;
+    padding-bottom: 60px;
+  }
+  .cast-mini {
+    --size: 168px;
+    --cone-w: 300px;
+    --cone-h: 230px;
+    height: 250px;
+  }
+  .cast-mini .cast-slot.is-hero {
+    --size: 168px;
+  }
+  .cast-shuffle {
+    right: 98px;
+    top: 90px;
+  }
+  .cast-name-input {
+    height: 44px;
+    font-size: 30px;
+  }
+  .cast-pickers {
+    gap: 12px;
+    margin-top: 18px;
+    padding: 16px 20px 18px;
+  }
+  .cast-pickers .is-colours .kleio-look-option {
+    width: 30px;
+    height: 30px;
+  }
+  .cast-what {
+    gap: 18px;
+    padding-top: 30px;
+  }
+  .cast-card {
+    padding: 18px 22px 20px;
+  }
+}
+
+/* ── a group's form (CastGroupForm.tsx): its members on the shelf as they
+   are ticked, smaller the more there are, then its name. ── */
+.cast-mini.cast-gstage {
+  --size: clamp(38px, calc(312px / var(--n)), 96px);
+  gap: 6px;
+}
+.cast-gstage .cast-slot {
+  height: 100%;
+}
+/* The list of specialists can run long: who is in the group stays in view beside it. */
+.cast-gform .cast-who {
+  position: sticky;
+  top: 6px;
+  align-self: start;
+}
+.cast-gform-who {
+  max-width: 100%;
+  min-height: 18px;
+  margin-top: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--text-muted);
+}
+.cast-gform .cast-card-head h2 {
+  flex: none;
+}
+.cast-gform .kleio-member-picks,
+.cast-gform .kleio-howto,
+.cast-gform .kleio-danger-btn {
+  margin-top: 10px;
+}
+.cast-gform .kleio-member-picks {
+  padding: 0;
+  list-style: none;
+}
+.cast-gform .kleio-count-line {
+  margin-top: 8px;
+}
+@media (min-width: 1400px) {
+  .cast-mini.cast-gstage {
+    --size: clamp(50px, calc(410px / var(--n)), 126px);
+  }
+}
+
+/* ── the group's room (CastRoom.tsx): who is in it, then the conversation ──
+   The members stand on one shelf as the cast does (.cast-actor), so the room
+   sets that shelf's sizes itself. Each has a place --pitch wide, which is what
+   the handoff arc measures in: from place --b-lo, --b-span places along. */
+.cast-room {
+  --rounded: ui-rounded, "SF Pro Rounded", -apple-system, sans-serif;
+  --card: rgba(255, 255, 255, 0.028);
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* No specificity: a reply's own paragraphs and lists keep their spacing. */
+:where(.cast-room) :where(h2, p, ol, ul) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cast-room .picker-title {
+  font-family: var(--rounded);
+}
+.cast-room-body button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+/* The panel is on the right, so its button's icon faces that way. */
+.cast-side-btn svg {
+  transform: scaleX(-1);
+}
+.cast-room-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.cast-room-body.has-side:not(.is-narrow) {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+.cast-room-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cast-room-stage {
+  --slot: 112px;
+  --pitch: 142px;
+  --size: 48px;
+  --floor: 44px;
+  --pad-b: 6px;
+  --name-gap: 8px;
+  --name-fs: 12.5px;
+  --name-lh: 16px;
+  --state-fs: 11px;
+  --state-lh: 14px;
+  --cone-w: 120px;
+  --cone-h: 128px;
+  --cone-foot: 10px;
+  --bubble-gap: 6px;
+  position: relative;
+  flex: none;
+  height: 128px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.cast-room-stage .cast-shelf {
+  left: 12%;
+  right: 12%;
+}
+.cast-room-members {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+  align-items: end;
+  width: min(100%, calc(var(--n) * var(--pitch)));
+  height: 100%;
+  margin: 0 auto;
+}
+.cast-member {
+  padding-inline: 8px;
+}
+.cast-room-stage .cast-state {
+  min-height: var(--state-lh);
+}
+/* The one replying stands in the spotlight. */
+.cast-room-stage .cast-actor::before {
+  clip-path: polygon(36% 0, 64% 0, 100% 100%, 0 100%);
+}
+.cast-member.is-live::before {
+  opacity: 1;
+}
+.cast-member.is-live .cast-name {
+  color: var(--text);
+}
+.cast-member.is-live .cast-state {
+  color: var(--primary-hi);
+}
+.cast-member.is-warn .cast-state {
+  color: var(--warning);
+}
+.cast-member.is-from .cast-state {
+  color: var(--text-secondary);
+}
+.cast-member.is-idle .cast-figure .blob-av {
+  filter: saturate(0.55) brightness(0.8);
+}
+/* Why a turn stopped, said the way the shelf says a failed run. */
+.cast-room-stage .cast-bubble {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 11.5px;
+}
+.cast-bubble.is-typing {
+  left: 78%;
+  bottom: calc(var(--floor) + var(--size) - 2px);
+  gap: 4px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 11px;
+}
+.cast-bubble.is-typing::after {
+  left: 20%;
+}
+.cast-bubble.is-typing i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  animation: cast-typing 1.3s var(--ease-glow) infinite;
+}
+.cast-bubble.is-typing i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.cast-bubble.is-typing i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+@keyframes cast-typing {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+/* The baton: one member's @mention handing the turn to the next. */
+.cast-baton {
+  --b-len: calc(var(--pitch) * var(--b-span) * 0.95);
+  position: absolute;
+  top: 18px;
+  left: calc(100% / var(--n) * (var(--b-lo) + 0.5));
+  width: calc(100% / var(--n) * var(--b-span));
+  height: 30px;
+  overflow: visible;
+  pointer-events: none;
+}
+.cast-baton[data-back] {
+  transform: scaleX(-1);
+}
+.cast-baton path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.cast-baton-arc {
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 4;
+}
+.cast-baton-spark {
+  stroke: var(--primary-hi);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 9px 2000px;
+  stroke-dashoffset: 9px;
+  animation: cast-baton 2.6s var(--ease-glow) infinite;
+}
+@keyframes cast-baton {
+  0% {
+    stroke-dashoffset: 9px;
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: calc(var(--b-len) * -1);
+    opacity: 0;
+  }
+}
+/* In a full room the arc is long: its track brightens toward whoever has the
+   turn (the direction, even with motion off), and a light sweeps along it. */
+.cast-baton.is-long {
+  top: 16px;
+  height: calc(100% - var(--floor) - var(--size) - 22px);
+}
+.cast-baton.is-long svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.cast-baton-track {
+  stroke-width: 1.4;
+  stroke-dasharray: 3 4;
+}
+.cast-baton-glow {
+  stroke: var(--primary-hi);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.cast-baton-sweep {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 40%, #000 60%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 40%, #000 60%, transparent);
+  -webkit-mask-size: 14% 100%;
+  mask-size: 14% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: -20% 0;
+  mask-position: -20% 0;
+  animation: cast-sweep 3.4s var(--ease-glow) infinite;
+}
+@keyframes cast-sweep {
+  0% {
+    -webkit-mask-position: -20% 0;
+    mask-position: -20% 0;
+  }
+  80%,
+  100% {
+    -webkit-mask-position: 120% 0;
+    mask-position: 120% 0;
+  }
+}
+
+/* A full room: six to eight stand closer, with smaller figures. */
+.cast-room-stage.is-crowd {
+  --slot: 80px;
+  --pitch: 110px;
+  --size: 40px;
+  --floor: 40px;
+  --cone-w: 104px;
+  --cone-h: 138px;
+  height: 146px;
+}
+.cast-room-stage.is-crowd .cast-shelf {
+  left: 4%;
+  right: 4%;
+}
+.cast-room-stage.is-crowd .cast-member {
+  padding-inline: 2px;
+}
+.cast-room-note {
+  flex: none;
+  padding: 6px 28px 0;
+  font-size: 11.5px;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+/* ── the conversation ── */
+.cast-thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 0 28px;
+  outline: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 44px);
+  mask-image: linear-gradient(to bottom, transparent, #000 44px);
+}
+/* A short conversation rests on the composer; a long one scrolls. */
+.cast-thread-inner {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  max-width: 640px;
+  margin: auto auto 0;
+  padding: 20px 0 6px;
+}
+.cast-thread-inner > * {
+  min-width: 0;
+}
+.cast-msg {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: start;
+}
+.cast-msg > .kleio-member-gone {
+  width: 30px;
+  height: 30px;
+}
+.cast-msg-body {
+  min-width: 0;
+}
+.cast-msg.is-you {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.cast-msg.is-you .cast-bub {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: 18px 18px 6px 18px;
+  background: var(--user-bg);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cast-msg.is-you time {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.cast-msg-who {
+  margin-bottom: 4px;
+  font: 600 12.5px var(--rounded);
+  color: var(--text-secondary);
+}
+.cast-msg-who time {
+  margin-left: 6px;
+  font: 400 11px var(--sans);
+  color: var(--text-dim);
+}
+.cast-msg-body .cast-bub {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px 18px 18px 18px;
+  background: var(--surface-1);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: normal;
+  color: var(--text);
+}
+.cast-bub .markdown > :first-child {
+  margin-top: 0;
+}
+.cast-bub .markdown > :last-child {
+  margin-bottom: 0;
+}
+.cast-msg-body > .kleio-files {
+  margin-top: 6px;
+}
+.cast-live-word {
+  font: 400 12px var(--sans);
+  color: var(--primary-hi);
+}
+.cast-steps {
+  display: grid;
+  gap: 2px;
+  padding: 9px 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 6px 16px 16px 16px;
+}
+.cast-steps .tool-row {
+  padding: 0;
+}
+
+/* ── the composer ── */
+.cast-composer {
+  flex: none;
+  padding: 8px 28px 16px;
+}
+.cast-composer > .kleio-error,
+.cast-mentions,
+.cast-input {
+  max-width: 640px;
+  margin-inline: auto;
+}
+.cast-composer > .kleio-error {
+  margin-bottom: 8px;
+}
+.cast-mentions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.cast-mentions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  font: 600 12.5px var(--rounded);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    border-color 240ms var(--ease-glow),
+    color 240ms var(--ease-glow);
+}
+.cast-mentions button:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.cast-mentions .blob-av {
+  width: 18px;
+  height: 18px;
+}
+/* Eight chips fit one line; if names run long they wrap rather than overflow. */
+.cast-mentions.is-crowd {
+  gap: 4px 3px;
+}
+.cast-mentions.is-crowd button {
+  gap: 2px;
+  height: 24px;
+  padding: 0 6px 0 2px;
+  font-size: 11.5px;
+}
+.cast-mentions.is-crowd .blob-av {
+  width: 16px;
+  height: 16px;
+}
+.cast-input {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  min-height: 48px;
+  padding: 6px 7px 6px 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.035);
+  transition: border-color 240ms var(--ease-glow);
+}
+.cast-input:focus-within {
+  border-color: rgba(255, 255, 255, 0.26);
+}
+/* One line sits level with the buttons; more lines grow upward from them. */
+.cast-input textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  max-height: 154px;
+  margin: 6px 0;
+  padding: 0;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: none;
+  box-shadow: none;
+  font: inherit;
+  font-size: 14.5px;
+  line-height: 22px;
+  color: var(--text);
+}
+.cast-input textarea::placeholder {
+  color: var(--text-dim);
+}
+.cast-input .dictate-btn {
+  flex: none;
+  width: 34px;
+  height: 34px;
+}
+.cast-input .dictate-btn:not(.is-recording) {
+  background: transparent;
+  box-shadow: none;
+}
+.cast-send {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--kleio-crimson);
+  color: #fff;
+  cursor: pointer;
+}
+.cast-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── the side panel: what they shared, newest first ── */
+.cast-room-side {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px;
+  border-left: 1px solid var(--border);
+}
+.cast-room-side[hidden] {
+  display: none;
+}
+/* In a narrow window the panel lies over the room. */
+.cast-room-body.is-narrow .cast-room-side {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 3;
+  width: min(300px, 100%);
+  background: var(--bg);
+  box-shadow: -12px 0 32px rgb(0 0 0 / 0.45);
+}
+.cast-room-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  padding: 0;
+  border: 0;
+  background: rgb(0 0 0 / 0.4);
+}
+.cast-side-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.cast-room-side .cast-p-note {
+  margin-top: 12px;
+}
+.cast-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.cast-tiles button {
+  display: grid;
+  width: 100%;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 240ms var(--ease-glow),
+    background 240ms var(--ease-glow);
+}
+.cast-tiles button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.05);
+}
+.cast-t-kind {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 70px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text-muted);
+}
+.cast-t-kind em {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  font: 700 9px var(--sans);
+  font-style: normal;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+/* The newest is the large one; a spreadsheet shows as a sheet of cells. */
+.cast-tiles li:first-child {
+  grid-column: span 2;
+}
+.cast-tiles li:first-child .cast-t-kind {
+  height: 92px;
+}
+.cast-tiles li:first-child .cast-t-kind.is-sheet {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px) 0 0 / 100% 16px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px) 0 0 / 54px 100%,
+    rgba(255, 255, 255, 0.035);
+}
+.cast-tiles li:first-child .cast-t-kind.is-sheet svg {
+  display: none;
+}
+.cast-t-name {
+  overflow: hidden;
+  margin-top: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+.cast-t-by {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.cast-t-by .blob-av {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+@media (min-width: 1400px) {
+  .cast-room-body.has-side:not(.is-narrow) {
+    grid-template-columns: minmax(0, 1fr) 380px;
+  }
+  .cast-room-side {
+    padding: 22px 26px;
+  }
+  .cast-room-stage {
+    --slot: 124px;
+    --pitch: 168px;
+    --size: 64px;
+    --floor: 46px;
+    --pad-b: 8px;
+    height: 160px;
+  }
+  .cast-member {
+    padding-inline: 14px;
+  }
+  .cast-baton:not(.is-long) {
+    top: 26px;
+    height: 34px;
+  }
+  .cast-room-stage.is-crowd {
+    --slot: 100px;
+    --pitch: 125px;
+    --size: 56px;
+    --floor: 46px;
+    --cone-w: 130px;
+    --cone-h: 168px;
+    height: 176px;
+  }
+  .cast-thread-inner,
+  .cast-composer > .kleio-error,
+  .cast-mentions,
+  .cast-input {
+    max-width: 720px;
+  }
+  .cast-msg-body .cast-bub,
+  .cast-msg.is-you .cast-bub {
+    font-size: 14.5px;
+  }
+  .cast-t-kind {
+    height: 88px;
+  }
+  .cast-tiles li:first-child .cast-t-kind {
+    height: 120px;
+  }
+}
+
+/* ── reduced motion: nothing on the shelf moves ──
+   No bounce, blink, drifting z's or bob; the spotlight and the profile's
+   pointer jump to the selection; hovering lifts nothing. The same in the
+   form: its character holds still, and its switches and menus don't slide.
+   And in the room: nobody bounces or blinks, no dots type, and the baton is
+   its arc alone, which still says who handed over to whom. */
+@media (prefers-reduced-motion: reduce) {
+  .cast-dot,
+  .cast-page *,
+  .cast-page *::before,
+  .cast-page *::after,
+  .cast-form *,
+  .cast-form *::before,
+  .cast-form *::after,
+  .cast-room *,
+  .cast-room *::before,
+  .cast-room *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .cast-actor:hover .cast-figure {
+    transform: none;
+  }
+  .cast-baton-sweep {
+    display: none;
+  }
+}

@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1582,
+        "tracked": 1575,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -3556,11 +3556,11 @@
         "tracked"
       ],
       "match": {
-        "regex": "(?:// Sent from a Ken \"Send to GG Coder\" button: show a shimmering \"Sent to GG|// full prompt body\\. The full body still went to GG Coder\\.|// prose: for a PROMPT he shows what he sent GG Coder back to do; the|Sent to GG Coder)",
+        "regex": "(?:// Sent from a Ken \"Send to GG Coder\" button: show a shimmering \"Sent to GG|// full prompt body\\. The full body still went to GG Coder\\.|// prose: for a PROMPT he shows what he sent GG Coder back to do; the)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 4
+        "tracked": 3
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -7669,25 +7669,6 @@
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
-      "id": "upstream-20260930-58c84fd766eb",
-      "path": "gg-app/src/SettingsModal.tsx",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:<SettingsSection title=\"Permissions\" description=\"Full Disk Access for GG Coder\\.\">)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 1
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
       "id": "upstream-20260930-a87c307bd826",
       "path": "gg-app/src/changelog.ts",
       "scope": "content",
@@ -8276,44 +8257,6 @@
       "owner": "Kleio framework maintainers",
       "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
       "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
-    },
-    {
-      "id": "kleio-separation-gg-app-src-kleio-aboutpage-test-tsx",
-      "path": "gg-app/src/kleio/AboutPage.test.tsx",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:expect\\(screen\\.getByText\\(\"Built on GG Coder by Ken Kai\"\\)\\)\\.toBeDefined\\(\\);)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 1
-      },
-      "bucket": "compatibility",
-      "owner": "Kleio framework maintainers",
-      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its About page in Settings, or to state that the two apps stay apart.",
-      "removeWhen": "Only if the credit line or the separation note is removed."
-    },
-    {
-      "id": "kleio-separation-gg-app-src-kleio-aboutpage-tsx",
-      "path": "gg-app/src/kleio/AboutPage.tsx",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:<p className=\"about-credit\">Built on GG Coder by Ken Kai<\\/p>)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 1
-      },
-      "bucket": "compatibility",
-      "owner": "Kleio framework maintainers",
-      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its About page in Settings, or to state that the two apps stay apart.",
-      "removeWhen": "Only if the credit line or the separation note is removed."
     },
     {
       "id": "kleio-separation-gg-app-src-kleio-kleio-theme-css",

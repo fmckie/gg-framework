@@ -343,3 +343,139 @@ describe("DictationCard", () => {
     expect(within(card()).getByText("Listening… Tap the mic again when you're done.")).toBeTruthy();
   });
 });
+
+// The desktop Kleio page's form: the same states under a plain heading, with
+// no status badge (Overview has it) and no filled button (Talk now has it).
+describe("DictationCard as a section", () => {
+  async function renderSection(canTry?: boolean): Promise<void> {
+    await act(async () => {
+      render(
+        canTry === undefined ? (
+          <DictationCard section />
+        ) : (
+          <DictationCard section canTry={canTry} />
+        ),
+      );
+    });
+  }
+  const primaries = (): number => card().querySelectorAll(".btn-primary").length;
+
+  it("is a region under a Dictation heading, with no badge and no service name", async () => {
+    await renderSection();
+    expect(within(card()).getByRole("heading", { level: 2, name: "Dictation" })).toBeTruthy();
+    expect(within(card()).getByText("Speak instead of typing in any chat box.")).toBeTruthy();
+    expect(card().querySelector(".badge")).toBeNull();
+    expect(within(card()).queryByText("Not set up")).toBeNull();
+    expect(within(card()).queryByText("Whisper, on your host")).toBeNull();
+  });
+
+  it("offers the download with its size, never as the primary", async () => {
+    await renderSection();
+    expect(
+      within(card()).getByText(/Needs a one-time download of 139 MB on the host\.$/),
+    ).toBeTruthy();
+    const download = screen.getByRole("button", { name: "Download speech model (139 MB)" });
+    expect(download.classList.contains("btn-ghost")).toBe(true);
+    expect(primaries()).toBe(0);
+  });
+
+  it("starts the download and follows it to ready, announcing each change", async () => {
+    await renderSection(true);
+    await click("Download speech model (139 MB)");
+    expect(startDictationSetup).toHaveBeenCalledOnce();
+    expect(announced()).toBe("Downloading the speech model.");
+
+    vi.mocked(getDictationSetup).mockResolvedValue(downloading(37));
+    await wait();
+    const bar = screen.getByRole("progressbar", { name: "Downloading the speech model…" });
+    expect(bar.getAttribute("aria-valuetext")).toBe("37 of 139 MB");
+    expect(
+      within(card()).getByText("You can leave this page; your host keeps downloading."),
+    ).toBeTruthy();
+    // Once it's downloading, the size is no longer a thing to agree to.
+    expect(within(card()).queryByText(/Needs a one-time download/)).toBeNull();
+
+    vi.mocked(getDictationSetup).mockResolvedValue(loading);
+    await wait();
+    expect(within(card()).getByText("Getting dictation ready…")).toBeTruthy();
+
+    vi.mocked(getDictationSetup).mockResolvedValue(ready);
+    await wait();
+    expect(within(card()).getByText("Ready. Tap the mic in any chat box.")).toBeTruthy();
+    expect(announced()).toBe("Dictation is ready.");
+    expect(screen.getByRole("button", { name: "Dictate" })).toBeTruthy();
+    expect(primaries()).toBe(0);
+  });
+
+  it("says where dictation is on a device without it", async () => {
+    vi.mocked(getDictationSetup).mockResolvedValue(ready);
+    await renderSection(false);
+    expect(
+      within(card()).getByText("Ready. Dictation is in Kleio on iPhone and Mac."),
+    ).toBeTruthy();
+    expect(within(card()).queryByRole("button")).toBeNull();
+  });
+
+  it("shows what Try it heard", async () => {
+    vi.mocked(getDictationSetup).mockResolvedValue(ready);
+    await renderSection(true);
+    await act(async () => mic?.onText("Run the tests."));
+    expect(within(card()).getByText("Heard: “Run the tests.”")).toBeTruthy();
+  });
+
+  it("says why a download failed and tries again, not as the primary", async () => {
+    vi.mocked(getDictationSetup).mockResolvedValue(failed("offline"));
+    await renderSection();
+    expect(
+      within(card()).getByText((text) => text.includes("Your host couldn't reach Hugging Face")),
+    ).toBeTruthy();
+    expect(primaries()).toBe(0);
+    await click("Try again");
+    expect(startDictationSetup).toHaveBeenCalledOnce();
+    expect(screen.getByRole("progressbar")).toBeTruthy();
+  });
+
+  it("says a host can't run dictation, with nothing to do", async () => {
+    vi.mocked(getDictationSetup).mockResolvedValue({
+      state: "unsupported",
+      os: "darwin",
+      arch: "x64",
+      bytes: BYTES,
+    });
+    await renderSection();
+    expect(
+      within(card()).getByText(
+        "Your host can't run dictation: the speech engine doesn't work on a Mac with an Intel chip.",
+      ),
+    ).toBeTruthy();
+    expect(within(card()).queryByRole("button")).toBeNull();
+  });
+
+  it("tells an older host to update, and that dictation still works", async () => {
+    vi.mocked(getDictationSetup).mockRejectedValue(new KleioApiError(404, "not found"));
+    await renderSection();
+    expect(
+      within(card()).getByText(
+        "Your host needs the latest Kleio to set up dictation here. Dictation still works: the first recording downloads what it needs.",
+      ),
+    ).toBeTruthy();
+    expect(within(card()).queryByRole("button")).toBeNull();
+  });
+
+  it.each([
+    [new KleioApiError(503, "engine_unavailable"), "Couldn't reach the engine on your host."],
+    [
+      new KleioApiError(0, "kleio_api: request timed out"),
+      "Couldn't check dictation on your host.",
+    ],
+  ])("can't check (%s): says so, with a quiet Try again that checks", async (error, words) => {
+    vi.mocked(getDictationSetup).mockRejectedValueOnce(error);
+    await renderSection();
+    expect(within(card()).getByText(words)).toBeTruthy();
+    const again = screen.getByRole("button", { name: "Try again" });
+    expect(again.classList.contains("btn")).toBe(false);
+    await click("Try again");
+    expect(getDictationSetup).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "Download speech model (139 MB)" })).toBeTruthy();
+  });
+});

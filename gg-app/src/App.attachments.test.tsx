@@ -309,15 +309,15 @@ describe("composer attachments", () => {
   it("preserves the draft and explains how to send attachments when addressing Helper", async () => {
     const helper = vi.spyOn(agent, "sendKenPrompt").mockResolvedValue(undefined);
     const { input, sends } = await setup();
-    fireEvent.change(input, { target: { value: "@Helper check this screenshot" } });
+    fireEvent.change(input, { target: { value: "@help check this screenshot" } });
     paste(input);
     await screen.findByRole("button", { name: "Remove screenshot.png" });
     fireEvent.click(screen.getByTitle("Send"));
     expect(helper).not.toHaveBeenCalled();
-    expect(input.value).toBe("@Helper check this screenshot");
+    expect(input.value).toBe("@help check this screenshot");
     expect(screen.getByRole("button", { name: "Remove screenshot.png" })).toBeTruthy();
     expect(notifications.toast).toHaveBeenCalledWith(
-      "Helper cannot receive attachments. Remove @Helper to send them to Kleio.",
+      "Helper cannot receive attachments. Remove @help to send them to Kleio.",
       "warning",
     );
     fireEvent.change(input, { target: { value: "check this screenshot" } });

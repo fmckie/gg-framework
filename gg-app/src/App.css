@@ -1492,6 +1492,13 @@ select {
   padding: 0 14px;
   color: var(--text);
 }
+/* Not available yet (Groups before the first specialist): dim, and hover leaves it alone. */
+.settings-tab[aria-disabled="true"],
+.settings-tab[aria-disabled="true"]:hover:not(.is-active) {
+  background: transparent;
+  color: var(--text-dim);
+  cursor: default;
+}
 .settings-tab-icon {
   position: relative;
   display: flex;
@@ -1804,13 +1811,12 @@ select {
   padding: 0 var(--rail);
 }
 /* macOS: left padding clears the traffic lights so the title sits right of them.
-   At the plain 19px midpoint the text read ~2px low beside the lights. Trading
-   1.5px of height for bottom padding keeps the row 38px tall but lifts its
-   centre to 18.25px, where the text's cap-height middle meets the lights'
-   centre (measured on a Retina screenshot, 2 device px per CSS px). */
+   The row is the mockup's 48px, and the window puts the lights' centre on its
+   24px midline (MAC_TRAFFIC_LIGHTS in src-tauri/src/windows.rs): change the two
+   together. */
 .platform-macos .chat-head-strip {
-  height: 36.5px;
-  padding: 0 var(--rail) 1.5px 82px;
+  height: 48px;
+  padding: 0 var(--rail) 0 82px;
 }
 /* The visible window title shows project context: cwd, current branch, then the
    uncommitted-file count and GitHub issue/PR chips. It grows into available

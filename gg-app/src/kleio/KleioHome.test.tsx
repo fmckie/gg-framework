@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { authStatusWithError, getLocalModels, getSettings } from "../agent";
 import { toast } from "../toast";
 import { diagnoseLink, diagnosisText, type Diagnosis } from "./connectionDiagnosis";
 import { KleioHome } from "./KleioHome";
+import { setVoiceReady } from "./VoiceMode";
 import { shortHost } from "./host-name";
 import type * as VoiceCall from "./voiceCall";
 
@@ -68,6 +69,7 @@ function renderHome() {
   const props = {
     onChat: vi.fn(),
     onCode: vi.fn(),
+    onMotion: vi.fn(),
     onGoals: vi.fn(),
     onBlobs: vi.fn(),
     onSettings: vi.fn(),
@@ -104,7 +106,6 @@ describe("KleioHome", () => {
     expect(screen.queryByText("Skool")).toBeNull();
     expect(screen.queryByText("YouTube")).toBeNull();
     expect(screen.queryByText(/piss me off/)).toBeNull();
-    expect(screen.queryByRole("button", { name: /Motion/ })).toBeNull();
     expect(await screen.findByText("v0.73.2")).toBeDefined();
   });
 
@@ -120,11 +121,76 @@ describe("KleioHome", () => {
     expect(screen.queryByRole("button", { name: /Agents/ })).toBeNull();
   });
 
-  it("opens Goals from its own text button", async () => {
+  it("Motion opens the video studio", async () => {
+    const p = renderHome();
+    await waitFor(() => expect(getSettings).toHaveBeenCalled());
+    const motion = await screen.findByRole("button", { name: "Motion" });
+    await waitFor(() => expect(motion.getAttribute("aria-disabled")).toBeNull());
+    fireEvent.click(motion);
+    expect(p.onMotion).toHaveBeenCalledOnce();
+  });
+
+  it("Motion asks for a projects folder first: its videos are saved there", async () => {
+    vi.mocked(getSettings).mockResolvedValue({ projectsRoot: "", configured: false });
+    const p = renderHome();
+    const motion = screen.getByRole("button", { name: "Motion" });
+    await waitFor(() => expect(motion.getAttribute("aria-disabled")).toBe("true"));
+    fireEvent.click(motion);
+    expect(p.onMotion).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith("Set a projects folder on your host first.", "warning");
+    expect(p.onSettings).toHaveBeenCalledWith("general");
+  });
+
+  it("opens Goals from its own button", async () => {
     const p = renderHome();
     await waitFor(() => expect(getSettings).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Goals" }));
     expect(p.onGoals).toHaveBeenCalledOnce();
+  });
+
+  it("dresses the three ways in and Talk to Kleio as domed buttons, with their shortcuts", async () => {
+    renderHome();
+    await waitFor(() => expect(getSettings).toHaveBeenCalled());
+    // The host's answer (no voice here) can land late; set it until it holds.
+    const talk = await waitFor(() => {
+      act(() => setVoiceReady(true));
+      return screen.getByRole("button", { name: "Talk to Kleio" });
+    });
+    const kleio = screen.getByRole("button", { name: "Kleio" });
+    const code = screen.getByRole("button", { name: "Code" });
+    const specialists = screen.getByRole("button", { name: "Specialists" });
+    for (const button of [kleio, code, specialists, talk]) {
+      expect(button.classList.contains("kleio-cloisonne")).toBe(true);
+    }
+    expect(talk.classList.contains("is-small")).toBe(true);
+    expect(kleio.classList.contains("is-small")).toBe(false);
+    expect(specialists.getAttribute("aria-keyshortcuts")).toBe("Meta+Shift+L");
+    expect(talk.getAttribute("aria-keyshortcuts")).toBe("Meta+Shift+B");
+    for (const [button, keys] of [
+      [specialists, "⌘⇧L"],
+      [talk, "⌘⇧B"],
+    ] as const) {
+      const hint = button.querySelector("kbd");
+      expect(hint?.textContent).toBe(keys);
+      expect(hint?.getAttribute("aria-hidden")).toBe("true");
+    }
+    act(() => setVoiceReady(false));
+  });
+
+  it("Goals is one domed button in the row, with an icon like the rest", async () => {
+    renderHome();
+    await waitFor(() => expect(getSettings).toHaveBeenCalled());
+    const goals = screen.getAllByRole("button", { name: "Goals" });
+    expect(goals).toHaveLength(1);
+    expect(goals[0]!.parentElement?.classList.contains("home-actions")).toBe(true);
+    expect(goals[0]!.classList.contains("kleio-cloisonne")).toBe(true);
+    expect(goals[0]!.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    // The domed row: Kleio, Code, Motion, Goals and Specialists.
+    expect(
+      [...document.querySelectorAll(".home-actions > button")].map((b) =>
+        b.textContent?.replace(/⌘.*/, "").trim(),
+      ),
+    ).toEqual(["Kleio", "Code", "Motion", "Goals", "Specialists"]);
   });
 
   it("holds its waves still while the voice screen covers it, so a call draws one set", async () => {

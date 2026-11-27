@@ -333,3 +333,72 @@ describe("WorkspaceHeader on the iPhone", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Kleio Chat" })).toBeDefined();
   });
 });
+
+describe("a Chat's title on the desktop", () => {
+  function renderChat(sessionTitle?: string, onOpenChats = vi.fn()): ReturnType<typeof vi.fn> {
+    render(
+      <WorkspaceHeader
+        workspaceMode="chat"
+        cwd="/work/kleio-projects"
+        gitBranch="main"
+        navHidden
+        onToggleNav={() => {}}
+        onOpenChats={onOpenChats}
+        sessionTitle={sessionTitle}
+      >
+        <button>New chat</button>
+      </WorkspaceHeader>,
+    );
+    return onOpenChats;
+  }
+
+  it("reads Chats / session title, and Chats opens the browser", () => {
+    const onOpenChats = renderChat("Plan my week");
+
+    const identity = screen.getByRole("navigation", { name: "Chat identity" });
+    expect(identity.textContent).toBe("Chats/Plan my week");
+    expect(screen.getByRole("heading", { name: "Plan my week" })).toBeDefined();
+    // In place of the folder and branch, as the mockup draws it.
+    expect(screen.queryByText("kleio-projects")).toBeNull();
+    expect(screen.queryByText("⎇ main")).toBeNull();
+
+    expect(onOpenChats).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Chats" }));
+    expect(onOpenChats).toHaveBeenCalledOnce();
+  });
+
+  it("reads Untitled chat for a chat with no title", () => {
+    renderChat(undefined);
+    expect(screen.getByRole("heading", { name: "Untitled chat" })).toBeDefined();
+  });
+
+  it("stays a window drag handle outside the Chats button", () => {
+    renderChat("Plan my week");
+    expect(screen.getByRole("heading").hasAttribute("data-tauri-drag-region")).toBe(true);
+    expect(
+      screen.getByRole("button", { name: "Chats" }).hasAttribute("data-tauri-drag-region"),
+    ).toBe(false);
+  });
+
+  it("keeps the folder title where no browser is given: Code and Motion", () => {
+    render(
+      <WorkspaceHeader workspaceMode="code" cwd="/work/app" navHidden onToggleNav={() => {}}>
+        <button>New session</button>
+      </WorkspaceHeader>,
+    );
+    expect(screen.getByText("app")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Chats" })).toBeNull();
+  });
+
+  it("keeps the project's name on the iPhone", () => {
+    document.documentElement.classList.add("platform-ios");
+    try {
+      renderChat("Plan my week");
+      expect(screen.getByRole("heading", { name: "kleio-projects" })).toBeDefined();
+      expect(screen.queryByRole("button", { name: "Chats" })).toBeNull();
+      expect(screen.queryByText("Plan my week")).toBeNull();
+    } finally {
+      document.documentElement.classList.remove("platform-ios");
+    }
+  });
+});

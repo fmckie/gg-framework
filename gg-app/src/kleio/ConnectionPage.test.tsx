@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 // The link's ticket vectors, which kleio-host's and the link's own tests read too.
 import vectors from "../../../packages/kleio-link/tests/fixtures/tickets.json";
+import { SettingsHeaderProvider } from "../settings-header";
 import { toast } from "../toast";
 import { ConnectionPage, formatLatency, N0_RELAY_LINE, switchWords } from "./ConnectionPage";
 import { forgetHint } from "./ForgetHost";
@@ -24,6 +26,7 @@ import type { LinkStatus } from "./kleioLink";
 import { noTicketWords, PAIR_STATE_POLL_MS } from "./PairingOffer";
 import { pairTicket } from "./pairTicket";
 import { encodeQr, qrSvgPath } from "./qr";
+import { leaveSettingsIntent, takeSettingsIntent } from "./settingsIntent";
 import {
   type Forgot,
   kleio,
@@ -198,6 +201,8 @@ afterEach(() => {
   vi.clearAllMocks();
   document.documentElement.classList.remove("platform-ios");
   localStorage.clear();
+  // No note from Overview outlives its test.
+  takeSettingsIntent();
 });
 
 /** The verdict under the map, once the first check is in, and its checklist rows as "label: text". */
@@ -208,6 +213,63 @@ async function verdict(): Promise<{ box: HTMLElement; checks: string[] }> {
     .getAllByRole("listitem")
     .map((li) => [...li.querySelectorAll("span")].map((s) => s.textContent).join(": "));
   return { box, checks };
+}
+
+/** On the desktop the steps wait behind Fix, on the path: presses it, and gives the steps it opens. */
+function pressFix(box: HTMLElement): HTMLElement {
+  const fix = within(box).getByRole("button", { name: "Fix" });
+  expect(fix.getAttribute("aria-expanded")).toBe("false");
+  expect(within(box).queryByRole("heading", { name: "How to fix it" })).toBeNull();
+  fireEvent.click(fix);
+  expect(fix.getAttribute("aria-expanded")).toBe("true");
+  const steps = document.getElementById(fix.getAttribute("aria-controls") ?? "");
+  if (!steps) throw new Error("Fix controls nothing");
+  expect(steps.hidden).toBe(false);
+  expect(within(steps).getByRole("heading", { name: "How to fix it" })).toBeTruthy();
+  return steps;
+}
+
+/** The desktop's Remove group, at the end of the page. */
+const removeGroup = (): HTMLElement => screen.getByRole("region", { name: "Remove" });
+
+/** The desktop's path, as each node's name and second line. */
+const pathNodes = (): (string | null | undefined)[][] =>
+  [...document.querySelectorAll(".cx-node")].map((n) => [
+    n.querySelector(".cx-node-name")?.textContent,
+    n.querySelector(".cx-node-detail")?.textContent,
+  ]);
+
+/** Each node's mark on the desktop's path: fine, a fault, waiting, or not known. */
+const pathMarks = (): string[] =>
+  [...document.querySelectorAll(".cx-node")].map(
+    (n) => [...n.classList].find((c) => /^is-(up|down|wait|unknown)$/.test(c)) ?? "",
+  );
+
+/** The path's two hops: whole, not known, or where it is cut. */
+const pathLegs = (): string[] =>
+  [...document.querySelectorAll(".cx-leg")].map(
+    (l) => [...l.classList].find((c) => c.startsWith("is-")) ?? "",
+  );
+
+/** The page under a Settings header's two slots, as the screen gives them. */
+function Framed(): React.ReactElement {
+  const [status, setStatus] = useState<HTMLElement | null>(null);
+  const [actions, setActions] = useState<HTMLElement | null>(null);
+  return (
+    <>
+      <span data-testid="head-status" ref={setStatus} />
+      <span data-testid="head-actions" ref={setActions} />
+      <SettingsHeaderProvider slots={{ status, actions }}>
+        <ConnectionPage />
+      </SettingsHeaderProvider>
+    </>
+  );
+}
+
+async function renderFramed(): Promise<void> {
+  await act(async () => {
+    render(<Framed />);
+  });
 }
 
 describe("ConnectionPage", () => {
@@ -254,7 +316,7 @@ describe("ConnectionPage", () => {
       "Tailscale on this Mac: Turned off",
       "Kleio on mac-mini-1: Can't find it",
     ]);
-    const steps = within(box)
+    const steps = within(pressFix(box))
       .getAllByRole("listitem")
       .map((li) => li.textContent);
     expect(steps).toContain("Click the Tailscale icon in the menu bar and turn it on.");
@@ -275,7 +337,7 @@ describe("ConnectionPage", () => {
       within(box).getByRole("heading", { name: "Kleio on mac-mini-1 isn't answering" }),
     ).toBeTruthy();
     // The whole command, as one line of text to read or copy.
-    expect(box.querySelector(".conn-command code")?.textContent).toBe(RESTART_HOST);
+    expect(pressFix(box).querySelector(".conn-command code")?.textContent).toBe(RESTART_HOST);
     await act(async () => {
       fireEvent.click(within(box).getByRole("button", { name: "Copy" }));
     });
@@ -451,13 +513,16 @@ describe("ConnectionPage", () => {
     // This Mac, new as it is, and last month's device aren't.
     expect(within(await row("Laptop")).queryByText("New")).toBeNull();
     expect(within(await row("Old iPad")).queryByText("New")).toBeNull();
+    // On the desktop a device's Revoke waits under Remove, not on its row.
+    expect(within(devices).queryByRole("button", { name: /Revoke/ })).toBeNull();
+    const remove = removeGroup();
     // This Mac can't revoke itself.
-    expect(
-      within(devices).queryByRole("button", { name: "Revoke this device: Laptop" }),
-    ).toBeNull();
-    fireEvent.click(within(sam).getByRole("button", { name: "Revoke this device: Sam's iPhone" }));
+    expect(screen.queryByRole("button", { name: "Revoke this device: Laptop" })).toBeNull();
+    fireEvent.click(
+      within(remove).getByRole("button", { name: "Revoke this device: Sam's iPhone" }),
+    );
     expect(kleio.revoke).not.toHaveBeenCalled();
-    fireEvent.click(within(sam).getByRole("button", { name: "Revoke" }));
+    fireEvent.click(within(remove).getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(kleio.revoke).toHaveBeenCalledWith("p1"));
     await waitFor(() => expect(toast).toHaveBeenCalledWith("Sam's iPhone revoked.", "success"));
   });
@@ -566,17 +631,19 @@ describe("ConnectionPage — Forget host", () => {
     await act(async () => {
       view = render(<ConnectionPage />);
     });
-    const host = screen.getByRole("region", { name: "Host" });
-    fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
+    // The desktop's Forget host waits under Remove, at the end of the page.
+    const remove = removeGroup();
+    expect(within(remove).getByText("This Mac's pairing with mac-mini-1")).toBeTruthy();
+    fireEvent.click(within(remove).getByRole("button", { name: "Forget host…" }));
     await act(async () => {
-      fireEvent.click(within(host).getByRole("button", { name: "Forget host" }));
+      fireEvent.click(within(remove).getByRole("button", { name: "Forget host" }));
     });
     expect(kleio.forget).toHaveBeenCalledTimes(1);
     await act(async () => {
       view?.rerender(<ConnectionPage />);
     });
     const after = screen.getByRole("region", { name: "Host" });
-    expect(within(after).queryByRole("button", { name: /Forget host/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Forget host/ })).toBeNull();
     expect(within(after).getByRole("status").textContent).toMatch(
       /^You just forgot the host\. Restart Kleio to apply/,
     );
@@ -592,7 +659,13 @@ describe("ConnectionPage — Forget host", () => {
     await act(async () => {
       view = render(<ConnectionPage />);
     });
-    const host = screen.getByRole("region", { name: "Host" });
+    // Not in the Host section on the desktop: under Remove.
+    expect(
+      within(screen.getByRole("region", { name: "Host" })).queryByRole("button", {
+        name: /Forget host/,
+      }),
+    ).toBeNull();
+    const host = removeGroup();
     fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
     expect(within(host).getByText(forgetHint())).toBeTruthy();
     expect(forgetHint()).toBe(
@@ -613,7 +686,7 @@ describe("ConnectionPage — Forget host", () => {
       view?.rerender(<ConnectionPage />);
     });
     const after = screen.getByRole("region", { name: "Host" });
-    expect(within(after).queryByRole("button", { name: /Forget host/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Forget host/ })).toBeNull();
     expect(within(after).getByRole("status").textContent).toMatch(
       /^You just forgot the host\. Restart Kleio to apply/,
     );
@@ -666,7 +739,7 @@ describe("ConnectionPage — Forget host", () => {
         }),
     );
     await renderPage();
-    const host = screen.getByRole("region", { name: "Host" });
+    const host = removeGroup();
     fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
     await act(async () => {
       fireEvent.click(within(host).getByRole("button", { name: "Forget host" }));
@@ -682,21 +755,25 @@ describe("ConnectionPage — Forget host", () => {
   it("says why when forgetting fails, and keeps the pairing", async () => {
     vi.mocked(kleio.forget).mockRejectedValue(new Error("couldn't remove remote.json"));
     await renderPage();
-    const host = screen.getByRole("region", { name: "Host" });
-    fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
+    const remove = removeGroup();
+    fireEvent.click(within(remove).getByRole("button", { name: "Forget host…" }));
     await act(async () => {
-      fireEvent.click(within(host).getByRole("button", { name: "Forget host" }));
+      fireEvent.click(within(remove).getByRole("button", { name: "Forget host" }));
     });
-    expect(within(host).getByRole("alert").textContent).toMatch(/remote\.json/);
-    expect(within(host).queryByRole("status")).toBeNull();
+    expect(within(remove).getByRole("alert").textContent).toMatch(/remote\.json/);
+    // The pairing is kept: still there to forget, and no restart is asked for.
+    expect(within(remove).getByRole("button", { name: "Forget host" })).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Host" })).queryByRole("status")).toBeNull();
   });
 
   it("isn't offered with no pairing at all", async () => {
     remote.status = { active: null, paired: null };
     await renderPage();
     const host = screen.getByRole("region", { name: "Host" });
-    expect(within(host).queryByRole("button", { name: /Forget host/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Forget host/ })).toBeNull();
     expect(within(host).queryByRole("status")).toBeNull();
+    // With nothing to remove, the desktop has no Remove group at all.
+    expect(screen.queryByRole("region", { name: "Remove" })).toBeNull();
   });
 });
 
@@ -883,6 +960,19 @@ describe("ConnectionPage — Kleio's link", () => {
     return dt.nextElementSibling?.textContent ?? "";
   }
 
+  /**
+   * The switch's words on the desktop: the first sentence in view, the rest
+   * behind the card's More. Read together, they are what the phone shows whole.
+   */
+  function switchSaid(box: HTMLElement): string {
+    const now = within(box).getByText("This Mac reaches mac-mini-1 over Tailscale.");
+    const fold = within(box).getByText("More", { selector: "summary" }).closest("details");
+    if (!fold) throw new Error("no More in the link card");
+    expect(fold.open).toBe(false);
+    expect(fold.contains(now)).toBe(false);
+    return `${now.textContent} ${fold.querySelector("p")?.textContent}`;
+  }
+
   /** Opens one of the card's disclosures, as a click on its summary does. */
   function open(box: HTMLElement, summary: string): HTMLElement {
     const row = within(box).getByText(summary, { selector: "summary" });
@@ -893,6 +983,80 @@ describe("ConnectionPage — Kleio's link", () => {
     expect(details.open).toBe(true);
     return details;
   }
+
+  it("on the desktop's path, the way through is the link's relay by name, or direct", async () => {
+    onTheLink();
+    await renderPage();
+    await verdict();
+    expect(pathNodes()[1]).toEqual(["Relay", "n0's public relay"]);
+    cleanup();
+
+    const own = "https://relay.example.com./";
+    onTheLink({ relay: own, relayN0: false, pathAddr: own, pathN0: false });
+    await renderPage();
+    await verdict();
+    expect(pathNodes()[1]).toEqual(["Relay", "relay.example.com"]);
+    cleanup();
+
+    onTheLink({ path: "direct", pathAddr: "192.168.4.68:52617", pathN0: false });
+    await renderPage();
+    await verdict();
+    expect(pathNodes()[1]).toEqual(["Direct", "No relay needed"]);
+  });
+
+  it("over the link, a host that is silent breaks the path at the host's door", async () => {
+    noAnswer();
+    onTheLink({
+      connected: false,
+      path: null,
+      pathAddr: null,
+      pathN0: false,
+      unreached: { kind: "host-silent", relays: [] },
+    });
+    await renderPage();
+    const { box } = await verdict();
+    expect(pathLegs()).toEqual(["is-up", "is-break-end"]);
+    expect(pathMarks()).toEqual(["is-up", "is-up", "is-down"]);
+    expect(box.querySelector(".cx-leg.is-break-end .cx-gap button")?.textContent).toBe("Fix");
+  });
+
+  it("over the link, slowed is still connected: the way is whole, in words, with nothing to fix", async () => {
+    onTheLink({ rateLimited: true });
+    await renderPage();
+    const { box } = await verdict();
+    expect(
+      within(box).getByRole("heading", { name: "Connected to mac-mini-1, slowly" }),
+    ).toBeTruthy();
+    // Not all is well, so what it means stays in view.
+    const detail = within(box).getByText(/^Slowed by the shared relay, to about 1 MB\/s\./);
+    expect(detail.classList.contains("sr-only")).toBe(false);
+    expect(pathLegs()).toEqual(["is-up", "is-up"]);
+    expect(pathMarks()).toEqual(["is-up", "is-wait", "is-up"]);
+    expect(within(box).queryByRole("button", { name: "Fix" })).toBeNull();
+  });
+
+  it("on the desktop, keeps what is and isn't encrypted in view, and folds n0's figures", async () => {
+    onTheLink();
+    const box = await card();
+    for (const text of [
+      "Your chats travel end-to-end encrypted between this Mac and mac-mini-1. Relays pass them on but can't read them.",
+      "iPhone notifications and Live Activities aren't end-to-end encrypted: Apple delivers them, with the start of a reply, question or error.",
+    ])
+      expect(within(box).getByText(text).closest("details")).toBeNull();
+    const fold = within(box).getByText(N0_RELAY_LINE).closest("details");
+    expect(fold?.open).toBe(false);
+    expect(fold?.querySelector("summary")?.getAttribute("aria-label")).toBe(
+      "More about Kleio's link",
+    );
+  });
+
+  it("on the iPhone, n0's figures are in view, with no More", async () => {
+    document.documentElement.classList.add("platform-ios");
+    onTheLink();
+    const box = await card();
+    expect(within(box).getByText(N0_RELAY_LINE).closest("details")).toBeNull();
+    expect(screen.queryByText("More", { selector: "summary" })).toBeNull();
+  });
 
   it("isn't there in a build without the link", async () => {
     await renderPage();
@@ -922,9 +1086,12 @@ describe("ConnectionPage — Kleio's link", () => {
     const host = screen.getByRole("region", { name: "Host" });
     expect(fact(host, "Name")).toBe("mac-mini-1.tail0000.ts.net");
     expect(within(host).queryByText("http://link.kleio.invalid")).toBeNull();
-    expect(
-      [...document.querySelectorAll(".conn-link-label")].map((label) => label.textContent),
-    ).toEqual(["Kleio's link", "Kleio's link"]);
+    // The way through is the link's relay, by name; nothing on the path says Tailscale.
+    expect(pathNodes()).toEqual([
+      ["This Mac", "Kleio Desktop"],
+      ["Relay", "n0's public relay"],
+      ["mac-mini-1", "Replies in 38 ms"],
+    ]);
   });
 
   it("over the link, a host that doesn't answer is asleep or offline, with the restart for its OS", async () => {
@@ -944,9 +1111,9 @@ describe("ConnectionPage — Kleio's link", () => {
       within(box).getByRole("heading", { name: "mac-mini-1 is asleep or offline" }),
     ).toBeTruthy();
     expect(within(box).getByText("Last reached 3 min ago.")).toBeTruthy();
-    expect([...box.querySelectorAll(".conn-command code")].map((c) => c.textContent)).toEqual([
-      RESTART_LINK,
-    ]);
+    expect(
+      [...pressFix(box).querySelectorAll(".conn-command code")].map((c) => c.textContent),
+    ).toEqual([RESTART_LINK]);
     // Nothing on the page talks of Tailscale.
     expect(within(box).queryByText(/Tailscale/)).toBeNull();
   });
@@ -960,9 +1127,9 @@ describe("ConnectionPage — Kleio's link", () => {
     expect(
       within(box).getByRole("heading", { name: "Kleio on mac-mini-1 isn't running" }),
     ).toBeTruthy();
-    expect([...box.querySelectorAll(".conn-command code")].map((c) => c.textContent)).toEqual([
-      START_HOST,
-    ]);
+    expect(
+      [...pressFix(box).querySelectorAll(".conn-command code")].map((c) => c.textContent),
+    ).toEqual([START_HOST]);
   });
 
   it("says the link is end-to-end encrypted, what isn't, and what n0's relay is", async () => {
@@ -1119,7 +1286,7 @@ describe("ConnectionPage — Kleio's link", () => {
     await renderPage();
     const { box } = await verdict();
     expect(within(box).getByRole("heading", { name: "mac-mini-1 removed this Mac" })).toBeTruthy();
-    expect(box.querySelector(".conn-command code")?.textContent).toBe("kleio-host pair");
+    expect(pressFix(box).querySelector(".conn-command code")?.textContent).toBe("kleio-host pair");
     const linkCard = screen.getByRole("region", { name: "Kleio's link" });
     expect(within(linkCard).getByText("Turned away", { selector: ".badge" })).toBeTruthy();
   });
@@ -1170,7 +1337,7 @@ describe("ConnectionPage — Kleio's link", () => {
       ),
     ).toBeTruthy();
     // Paired by address (over Tailscale): the switch's words, as an admin.
-    expect(within(box).getByText(switchWords("Mac", "mac-mini-1", true))).toBeTruthy();
+    expect(switchSaid(box)).toBe(switchWords("Mac", "mac-mini-1", true));
     fireEvent.change(within(box).getByLabelText("Paste pairing text"), {
       target: { value: TICKET },
     });
@@ -1231,7 +1398,7 @@ describe("ConnectionPage — Kleio's link", () => {
         kleio_switch_status: () => ({ state: "waiting-for-link", reason: null }),
       });
       const box = await card();
-      expect(within(box).getByText(switchWords("Mac", "mac-mini-1", true))).toBeTruthy();
+      expect(switchSaid(box)).toBe(switchWords("Mac", "mac-mini-1", true));
       expect(switchWords("Mac", "mac-mini-1", true)).toBe(
         "This Mac reaches mac-mini-1 over Tailscale. Switch to Kleio's link: no Tailscale needed. It pairs again with a code of its own, so this Mac stays an admin. Your pairing over Tailscale stays until the link has reached mac-mini-1.",
       );
@@ -1287,11 +1454,9 @@ describe("ConnectionPage — Kleio's link", () => {
           link({ paired: false, active: false, running: false, debugBuild: false }),
       });
       const box = await card();
-      expect(
-        within(box).getByText(
-          "This Mac reaches mac-mini-1 over Tailscale. Switch to Kleio's link: no Tailscale needed. Paste pairing text from an admin device's Settings → Connection. Your pairing over Tailscale stays until the link has reached mac-mini-1.",
-        ),
-      ).toBeTruthy();
+      expect(switchSaid(box)).toBe(
+        "This Mac reaches mac-mini-1 over Tailscale. Switch to Kleio's link: no Tailscale needed. Paste pairing text from an admin device's Settings → Connection. Your pairing over Tailscale stays until the link has reached mac-mini-1.",
+      );
       expect(within(box).queryByRole("button", { name: "Switch to Kleio's link" })).toBeNull();
       expect(within(box).getByLabelText("Paste pairing text")).toBeTruthy();
       expect(switchWords("iPhone", "mac-mini-1", false)).toMatch(
@@ -1676,5 +1841,554 @@ describe("ConnectionPage — relays", () => {
         "Kleio on mac-mini-1 can't change its relays yet. Update it to choose.",
       ),
     ).toBeTruthy();
+  });
+});
+
+// The desktop's Overview says in its Host row whether the host stays on; the
+// steps to keep it on are here. The phone has them on Setup.
+describe("ConnectionPage — Always on", () => {
+  const alwaysOn = (): HTMLElement => screen.getByRole("region", { name: "Always on" });
+  const SLEEPS: HostInfo = {
+    kind: {
+      os: "darwin",
+      laptop: false,
+      alwaysOn: { state: "may_sleep", reasons: ["sleeps_on_ac", "no_wake_for_network"] },
+    },
+    keepAwake: "off",
+  };
+
+  it("follows Host on the desktop, and says a host that stays on does", async () => {
+    await renderPage();
+    const card = await screen.findByRole("region", { name: "Always on" });
+    expect(
+      await within(card).findByText("Yes. mac-mini-1 stays on, so Kleio can answer any time."),
+    ).toBeTruthy();
+    expect(within(card).queryByRole("listitem")).toBeNull();
+    const regions = screen.getAllByRole("region").map((r) => r.getAttribute("aria-label"));
+    expect(regions.indexOf("Always on")).toBe(regions.indexOf("Host") + 1);
+  });
+
+  it("gives the steps for the host's OS when it may fall asleep", async () => {
+    vi.mocked(getHostInfo).mockResolvedValue(SLEEPS);
+    await renderPage();
+    expect(
+      await within(alwaysOn()).findByText(
+        "mac-mini-1 may fall asleep. To keep it on, do this on mac-mini-1 itself:",
+      ),
+    ).toBeTruthy();
+    const steps = within(alwaysOn())
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+    expect(steps).toHaveLength(3);
+    expect(steps[0]).toContain("System Settings, then click Energy");
+    expect(steps[1]).toContain("Prevent automatic sleeping when the display is off");
+    expect(steps[2]).toContain("Wake for network access");
+  });
+
+  it("says it's checking until the host answers", async () => {
+    vi.mocked(getHostInfo).mockReturnValue(new Promise(() => {}));
+    await renderPage();
+    expect(within(alwaysOn()).getByText("Checking whether mac-mini-1 stays on…")).toBeTruthy();
+  });
+
+  it("can't ask the host: goes by what it last said, else says it couldn't check", async () => {
+    vi.mocked(getHostInfo).mockRejectedValue(new KleioApiError(404, "not found"));
+    localStorage.setItem("kleio.hostKind", JSON.stringify(SLEEPS.kind));
+    await renderPage();
+    expect(await within(alwaysOn()).findByRole("img", { name: "May sleep" })).toBeTruthy();
+    cleanup();
+
+    localStorage.clear();
+    await renderPage();
+    expect(
+      await within(alwaysOn()).findByText("Couldn't check whether mac-mini-1 stays on."),
+    ).toBeTruthy();
+  });
+
+  it("is absent on the phone, which has it on Setup", async () => {
+    document.documentElement.classList.add("platform-ios");
+    vi.mocked(getHostInfo).mockResolvedValue(SLEEPS);
+    await renderPage();
+    await waitFor(() => expect(getHostInfo).toHaveBeenCalled());
+    await act(async () => {});
+    expect(screen.getByRole("region", { name: "Host" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Always on" })).toBeNull();
+  });
+
+  it("is absent until this device is paired with a host", async () => {
+    remote.status = { active: null, paired: null };
+    await renderPage();
+    expect(screen.getByRole("region", { name: "Host" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Always on" })).toBeNull();
+  });
+});
+
+describe("ConnectionPage — the desktop's path", () => {
+  /** Kleio on the host doesn't answer, and nothing replies at all. */
+  const silent = (): void => {
+    vi.mocked(hostHealth).mockRejectedValue(new Error("request timed out"));
+  };
+
+  it("says health once: nothing in the header, and Check again under the verdict line", async () => {
+    await renderFramed();
+    const { box } = await verdict();
+    expect(screen.getByTestId("head-status").textContent).toBe("");
+    expect(screen.getByTestId("head-actions").textContent).toBe("");
+    // The phone's map and verdict card aren't drawn.
+    expect(document.querySelector(".conn-map, .conn-verdict")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Check again" })).toHaveLength(1);
+    expect(hostHealth).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      fireEvent.click(within(box).getByRole("button", { name: "Check again" }));
+    });
+    expect(hostHealth).toHaveBeenCalledTimes(2);
+  });
+
+  it("is whole while connected: this Mac, the way through, the host, and one light", async () => {
+    await renderPage();
+    const { box } = await verdict();
+    expect(box.querySelector(".cx-path, .cx-route")).toBeTruthy();
+    expect(box.classList.contains("is-ok")).toBe(true);
+    expect(pathNodes()).toEqual([
+      ["This Mac", "laptop"],
+      ["Tailscale", "Direct link"],
+      ["mac-mini-1", "Replies in 38 ms"],
+    ]);
+    expect(pathMarks()).toEqual(["is-up", "is-up", "is-up"]);
+    expect(pathLegs()).toEqual(["is-up", "is-up"]);
+    expect(box.querySelectorAll(".cx-light")).toHaveLength(1);
+    expect(within(box).queryByRole("button", { name: "Fix" })).toBeNull();
+    // What all is well means is the path's to show; a screen reader still hears it, and
+    // what was checked, in words.
+    expect(
+      within(box)
+        .getByText(/^Everything's working\./)
+        .classList.contains("sr-only"),
+    ).toBe(true);
+    expect(
+      within(box).getByRole("list", { name: "What was checked" }).classList.contains("sr-only"),
+    ).toBe(true);
+  });
+
+  it("says Tailscale goes through a relay when it does", async () => {
+    vi.mocked(kleio.tailscale).mockResolvedValue(net({ host: { ...MINI, direct: false } }));
+    await renderPage();
+    await verdict();
+    expect(pathNodes()[1]).toEqual(["Tailscale", "Through a relay"]);
+  });
+
+  it("marks nothing and moves nothing while it is still checking", async () => {
+    vi.mocked(hostHealth).mockReturnValue(new Promise(() => {}));
+    await renderPage();
+    const box = screen.getByRole("region", { name: "Connection check" });
+    expect(within(box).getByText("Checking the connection to mac-mini-1…")).toBeTruthy();
+    expect(pathMarks()).toEqual(["is-unknown", "is-unknown", "is-unknown"]);
+    expect(pathLegs()).toEqual(["is-unknown", "is-unknown"]);
+    expect(box.querySelector(".cx-light")).toBeNull();
+    expect(within(box).getByRole<HTMLButtonElement>("button", { name: "Checking…" }).disabled).toBe(
+      true,
+    );
+  });
+
+  it("breaks at this Mac's door when Tailscale is off here, with Fix in the gap", async () => {
+    silent();
+    vi.mocked(kleio.tailscale).mockResolvedValue(
+      net({ running: false, backendState: "Stopped", host: null, self: null }),
+    );
+    await renderPage();
+    const { box } = await verdict();
+    expect(box.classList.contains("is-broken")).toBe(true);
+    expect(pathLegs()).toEqual(["is-break-start", "is-unknown"]);
+    expect(pathMarks()).toEqual(["is-down", "is-unknown", "is-unknown"]);
+    const fix = box.querySelector(".cx-leg.is-break-start .cx-gap button");
+    expect(fix).toBe(within(box).getByRole("button", { name: "Fix" }));
+    // The page's one filled button.
+    expect(fix?.classList.contains("btn-primary")).toBe(true);
+    expect(box.querySelector(".cx-light")).toBeNull();
+    // What is wrong stays in view, in words.
+    expect(
+      within(box)
+        .getByText(/^Kleio talks to mac-mini-1 over Tailscale/)
+        .classList.contains("sr-only"),
+    ).toBe(false);
+  });
+
+  it("breaks mid-way when the host has dropped off the network", async () => {
+    silent();
+    vi.mocked(kleio.tailscale).mockResolvedValue(
+      net({ host: { ...MINI, online: false, direct: false } }),
+    );
+    await renderPage();
+    const { box } = await verdict();
+    expect(within(box).getByRole("heading", { name: "mac-mini-1 is offline" })).toBeTruthy();
+    expect(pathLegs()).toEqual(["is-up", "is-break-middle"]);
+    expect(pathMarks()).toEqual(["is-up", "is-down", "is-unknown"]);
+    expect(box.querySelector(".cx-leg.is-break-middle .cx-gap button")?.textContent).toBe("Fix");
+  });
+
+  it("breaks at the host's door when the host is there and Kleio isn't answering", async () => {
+    vi.mocked(hostHealth).mockRejectedValue(
+      Object.assign(new Error("Bad gateway"), { status: 502 }),
+    );
+    await renderPage();
+    const { box } = await verdict();
+    expect(pathLegs()).toEqual(["is-up", "is-break-end"]);
+    expect(pathMarks()).toEqual(["is-up", "is-up", "is-down"]);
+    expect(pathNodes()[2]).toEqual(["mac-mini-1", "Kleio host"]);
+    expect(box.querySelector(".cx-leg.is-break-end .cx-gap button")?.textContent).toBe("Fix");
+  });
+
+  it("Fix opens the steps and closes them again, and says which", async () => {
+    silent();
+    await renderPage();
+    const { box } = await verdict();
+    const steps = pressFix(box);
+    expect(within(steps).getAllByRole("listitem").length).toBeGreaterThan(1);
+    const fix = within(box).getByRole("button", { name: "Fix" });
+    fireEvent.click(fix);
+    expect(fix.getAttribute("aria-expanded")).toBe("false");
+    expect(steps.hidden).toBe(true);
+    expect(within(box).queryByRole("heading", { name: "How to fix it" })).toBeNull();
+    // Opening them by hand doesn't move focus off Fix.
+    fix.focus();
+    fireEvent.click(fix);
+    expect(document.activeElement).toBe(fix);
+  });
+
+  it("a restart is waiting, not a fault: its node waits, and Fix is a quiet button", async () => {
+    vi.mocked(hostHealth).mockResolvedValue({ sidecar: "stale", devices: 2, latencyMs: 38 });
+    await renderPage();
+    const { box } = await verdict();
+    expect(
+      within(box).getByRole("heading", { name: "Kleio is restarting on mac-mini-1" }),
+    ).toBeTruthy();
+    expect(box.classList.contains("is-warn")).toBe(true);
+    expect(pathLegs()).toEqual(["is-up", "is-break-end"]);
+    expect(pathMarks()).toEqual(["is-up", "is-up", "is-wait"]);
+    const fix = within(box).getByRole("button", { name: "Fix" });
+    expect([fix.classList.contains("btn-primary"), fix.classList.contains("btn-ghost")]).toEqual([
+      false,
+      true,
+    ]);
+    expect(box.querySelector(".cx-light")).toBeNull();
+    expect(pressFix(box).querySelector(".conn-command code")).toBeTruthy();
+  });
+
+  it("opens on the steps, with focus on them, when Overview's Fix opened the page, and only then", async () => {
+    silent();
+    leaveSettingsIntent("connection-fix");
+    await renderPage();
+    const { box } = await verdict();
+    const fix = within(box).getByRole("button", { name: "Fix" });
+    expect(fix.getAttribute("aria-expanded")).toBe("true");
+    const title = within(box).getByRole("heading", { name: "How to fix it" });
+    expect(document.activeElement).toBe(title);
+    cleanup();
+
+    // Opened any other way (the note is read once): closed, and focus isn't moved.
+    await renderPage();
+    const again = (await verdict()).box;
+    expect(within(again).getByRole("button", { name: "Fix" }).getAttribute("aria-expanded")).toBe(
+      "false",
+    );
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("closes the steps once there is nothing left to fix", async () => {
+    silent();
+    await renderPage();
+    const { box } = await verdict();
+    pressFix(box);
+    vi.mocked(hostHealth).mockResolvedValue({ sidecar: "up", devices: 2, latencyMs: 38 });
+    await act(async () => {
+      fireEvent.click(within(box).getByRole("button", { name: "Check again" }));
+    });
+    expect(within(box).queryByRole("button", { name: "Fix" })).toBeNull();
+    // Broken again later: the steps wait behind Fix, as on a first visit.
+    silent();
+    await act(async () => {
+      fireEvent.click(within(box).getByRole("button", { name: "Check again" }));
+    });
+    expect(within(box).getByRole("button", { name: "Fix" }).getAttribute("aria-expanded")).toBe(
+      "false",
+    );
+  });
+
+  it("on the phone keeps the map, the verdict card with its steps open, and the header's badge and button", async () => {
+    document.documentElement.classList.add("platform-ios");
+    silent();
+    await renderFramed();
+    const { box } = await verdict();
+    expect(box.classList.contains("conn-verdict")).toBe(true);
+    expect(document.querySelector(".cx-path, .cx-route, .cx-page")).toBeNull();
+    expect(
+      [...document.querySelectorAll(".conn-map .conn-node-name")].map((n) => n.textContent),
+    ).toEqual(["This iPhone", "mac-mini-1", "Mac"]);
+    expect(
+      [...document.querySelectorAll(".conn-link-label")].map((label) => label.textContent),
+    ).toEqual(["Tailscale", "Tailscale"]);
+    // The steps are open without a Fix to press.
+    expect(within(box).queryByRole("button", { name: "Fix" })).toBeNull();
+    expect(within(box).getByRole("heading", { name: "How to fix it" })).toBeTruthy();
+    expect(within(box).getByText("Then tap Check again.")).toBeTruthy();
+    expect(screen.getByTestId("head-status").textContent).toBe("Disconnected");
+    expect(
+      within(screen.getByTestId("head-actions")).getByRole("button", { name: "Check again" }),
+    ).toBeTruthy();
+  });
+});
+
+describe("ConnectionPage — Remove, on the desktop", () => {
+  const DAY = 24 * 60 * 60_000;
+  const ago = (ms: number): string => new Date(Date.now() - ms).toISOString();
+  const device = (deviceId: string, label: string, created: number, seen: number | null) => ({
+    deviceId,
+    label,
+    created: ago(created),
+    lastSeen: seen === null ? null : ago(seen),
+    revoked: false,
+    admin: deviceId === "self",
+  });
+  /** This Mac, and two phones that both go by "iPhone". */
+  const DEVICES = [
+    device("self", "Laptop", 40 * DAY, 0),
+    device("p1", "iPhone", 2 * 60 * 60_000, null),
+    device("p2", "iPhone", 30 * DAY, DAY),
+  ];
+
+  async function shown(): Promise<{ remove: HTMLElement; devices: HTMLElement }> {
+    vi.mocked(kleio.devices).mockResolvedValue(DEVICES);
+    await renderPage();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show devices" }));
+    });
+    return { remove: removeGroup(), devices: screen.getByRole("region", { name: "Devices" }) };
+  }
+  const whats = (remove: HTMLElement): (string | null)[] =>
+    [...remove.querySelectorAll(".st-danger-what")].map((w) => w.textContent);
+
+  it("is last, and holds Forget host alone until devices are shown", async () => {
+    await renderPage();
+    const remove = removeGroup();
+    expect(whats(remove)).toEqual(["This Mac's pairing with mac-mini-1"]);
+    expect(
+      within(remove)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Forget host…"]);
+    expect(document.querySelector(".cx-page")?.lastElementChild).toBe(remove);
+  });
+
+  it("holds one Revoke per other device, each with its row's second line", async () => {
+    const { remove, devices } = await shown();
+    const subs = [...devices.querySelectorAll(".conn-device-sub")].map((el) => el.textContent);
+    expect(subs[1]).toBe("Paired 2 h ago");
+    // Two devices of one name are told apart by when they paired or were last active.
+    expect(whats(remove)).toEqual([
+      "This Mac's pairing with mac-mini-1",
+      `iPhone · ${subs[1]}`,
+      `iPhone · ${subs[2]}`,
+    ]);
+    expect(subs[1]).not.toBe(subs[2]);
+    expect(
+      within(remove)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label") ?? b.textContent),
+    ).toEqual(["Forget host…", "Revoke this device: iPhone", "Revoke this device: iPhone"]);
+    // The rows themselves hold no Revoke, and say where it is.
+    expect(within(devices).queryByRole("button", { name: /Revoke/ })).toBeNull();
+    expect(
+      within(devices).getByText("Revoke a device under Remove, at the end of this page."),
+    ).toBeTruthy();
+  });
+
+  it("asking moves focus to Keep, for Forget host and for Revoke, and removes nothing", async () => {
+    const { remove } = await shown();
+    fireEvent.click(within(remove).getByRole("button", { name: "Forget host…" }));
+    const keepHost = within(remove).getByRole("button", { name: "Keep" });
+    expect(document.activeElement).toBe(keepHost);
+    fireEvent.click(keepHost);
+
+    const [first] = within(remove).getAllByRole("button", { name: "Revoke this device: iPhone" });
+    if (!first) throw new Error("no Revoke");
+    fireEvent.click(first);
+    expect(document.activeElement).toBe(within(remove).getByRole("button", { name: "Keep" }));
+    expect(within(remove).getByText("It's cut off straight away.")).toBeTruthy();
+    expect(kleio.forget).not.toHaveBeenCalled();
+    expect(kleio.revoke).not.toHaveBeenCalled();
+  });
+
+  it("after a revoke, focus goes to the next device's item, and to Devices after the last", async () => {
+    const { remove } = await shown();
+    const revokeFirst = async (): Promise<void> => {
+      const [first] = within(remove).getAllByRole("button", { name: "Revoke this device: iPhone" });
+      if (!first) throw new Error("no Revoke");
+      fireEvent.click(first);
+      await act(async () => {
+        fireEvent.click(within(remove).getByRole("button", { name: "Revoke" }));
+      });
+    };
+    vi.mocked(kleio.revoke).mockResolvedValue([DEVICES[0], DEVICES[2]] as typeof DEVICES);
+    await revokeFirst();
+    expect(kleio.revoke).toHaveBeenLastCalledWith("p1");
+    expect(whats(remove)).toHaveLength(2);
+    expect(document.activeElement).toBe(
+      within(remove).getByRole("button", { name: "Revoke this device: iPhone" }),
+    );
+
+    vi.mocked(kleio.revoke).mockResolvedValue([DEVICES[0]] as typeof DEVICES);
+    await revokeFirst();
+    expect(kleio.revoke).toHaveBeenLastCalledWith("p2");
+    expect(whats(remove)).toEqual(["This Mac's pairing with mac-mini-1"]);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Devices" }));
+  });
+
+  it("says why under Remove when the host won't revoke, and keeps the device", async () => {
+    const { remove } = await shown();
+    vi.mocked(kleio.revoke).mockRejectedValue(new Error("the host turned it away"));
+    const [first] = within(remove).getAllByRole("button", { name: "Revoke this device: iPhone" });
+    if (!first) throw new Error("no Revoke");
+    fireEvent.click(first);
+    await act(async () => {
+      fireEvent.click(within(remove).getByRole("button", { name: "Revoke" }));
+    });
+    expect(within(remove).getByRole("alert").textContent).toMatch(/the host turned it away/);
+    expect(whats(remove)).toHaveLength(3);
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it("offers a device that isn't an admin no Revoke", async () => {
+    const active = BY_ADDRESS.active;
+    if (active === null) throw new Error("BY_ADDRESS has a pairing");
+    remote.status = { ...BY_ADDRESS, active: { ...active, admin: false } };
+    await renderPage();
+    expect(whats(removeGroup())).toEqual(["This Mac's pairing with mac-mini-1"]);
+    expect(screen.queryByRole("button", { name: "Show devices" })).toBeNull();
+  });
+
+  it("on the phone, Forget host and Revoke stay inline, and there is no Remove group", async () => {
+    document.documentElement.classList.add("platform-ios");
+    vi.mocked(kleio.devices).mockResolvedValue(DEVICES);
+    await renderPage();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show devices" }));
+    });
+    expect(screen.queryByRole("region", { name: "Remove" })).toBeNull();
+    const host = screen.getByRole("region", { name: "Host" });
+    expect(within(host).getByRole("button", { name: "Forget host…" })).toBeTruthy();
+    const devices = screen.getByRole("region", { name: "Devices" });
+    expect(
+      within(devices).getAllByRole("button", { name: "Revoke this device: iPhone" }),
+    ).toHaveLength(2);
+    expect(
+      within(devices).queryByText("Revoke a device under Remove, at the end of this page."),
+    ).toBeNull();
+  });
+});
+
+describe("ConnectionPage — what the desktop folds", () => {
+  /** A section's fold: its More, named for it. */
+  function more(name: string): HTMLDetailsElement {
+    const region = screen.getByRole("region", { name });
+    const summary = within(region).getByText("More", { selector: "summary" });
+    expect(summary.getAttribute("aria-label")).toBe(`More about ${name}`);
+    const fold = summary.closest("details");
+    if (!fold) throw new Error(`no fold in ${name}`);
+    expect(fold.open).toBe(false);
+    return fold;
+  }
+
+  it("keeps every sentence about encryption, Apple and the open internet outside every fold", async () => {
+    await renderPage();
+    await verdict();
+    for (const text of [
+      "The private network between your devices. Nothing is open to the internet.",
+      "iPhone notifications and Live Activities come through Apple, so they aren't end-to-end encrypted like your chats.",
+      // What the switch does.
+      "They quote the start of a reply, question or error, and some questions can be answered from the lock screen.",
+      "You'll get a one-time code that works for a few minutes. It pairs the device; it never shares a password.",
+    ])
+      expect((await screen.findByText(text)).closest("details")).toBeNull();
+  });
+
+  it("folds each section's later sentences behind a More named for it, with no sentence reworded", async () => {
+    await renderPage();
+    await verdict();
+    for (const [name, lead, rest] of [
+      [
+        "Host",
+        "Kleio's brain lives here.",
+        "Chats, specialists and code all run on it, so they keep going when this device sleeps.",
+      ],
+      [
+        "Relays",
+        "Your devices find this host through these, in order.",
+        "n0's are free and shared, and slow big downloads to about 1 MB/s. A relay of your own is faster.",
+      ],
+      [
+        "Pair a device",
+        "Pair another iPhone or Mac with your host.",
+        "An iPhone scans the QR code, and a Mac pastes its pairing text.",
+      ],
+      [
+        "Devices",
+        "Everything paired with your host.",
+        "New marks a device paired this week. Revoke one and it's cut off straight away.",
+      ],
+    ] as const) {
+      const region = await screen.findByRole("region", { name });
+      const fold = more(name);
+      expect(within(region).getByText(lead).closest("details")).toBeNull();
+      expect(fold.querySelector("p")?.textContent).toBe(rest);
+    }
+  });
+
+  it("puts Tailscale's facts under Details, and leaves what Tailscale says in view", async () => {
+    vi.mocked(kleio.tailscale).mockResolvedValue(net({ health: ["Key expires in 5 days."] }));
+    await renderPage();
+    await verdict();
+    const ts = screen.getByRole("region", { name: "Tailscale" });
+    const details = within(ts).getByText("Details", { selector: "summary" }).closest("details");
+    expect(details?.open).toBe(false);
+    expect(details?.contains(within(ts).getByText("me@example.com"))).toBe(true);
+    expect(within(ts).getByText("Key expires in 5 days.").closest("details")).toBeNull();
+  });
+
+  it("on the phone, shows every description whole, with nothing folded", async () => {
+    document.documentElement.classList.add("platform-ios");
+    await renderPage();
+    await verdict();
+    for (const text of [
+      "Kleio's brain lives here. Chats, specialists and code all run on it, so they keep going when this device sleeps.",
+      "Your devices find this host through these, in order. n0's are free and shared, and slow big downloads to about 1 MB/s. A relay of your own is faster.",
+      "Pair another iPhone or Mac with your host. An iPhone scans the QR code, and a Mac pastes its pairing text.",
+      "Everything paired with your host. New marks a device paired this week. Revoke one and it's cut off straight away.",
+    ])
+      expect(await screen.findByText(text)).toBeTruthy();
+    expect(screen.queryByText("More", { selector: "summary" })).toBeNull();
+  });
+});
+
+describe("ConnectionPage — Always on, from Overview", () => {
+  it("comes into view, with focus on its heading, when Keep it on opened the page, and only then", async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    leaveSettingsIntent("connection-always-on");
+    await renderPage();
+    const heading = within(await screen.findByRole("region", { name: "Always on" })).getByRole(
+      "heading",
+      { name: "Always on" },
+    );
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView.mock.contexts[0]).toBe(heading);
+    expect(document.activeElement).toBe(heading);
+    // It asked for Always on, not for the steps.
+    cleanup();
+    scrollIntoView.mockClear();
+
+    await renderPage();
+    await screen.findByRole("region", { name: "Always on" });
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(document.body);
   });
 });

@@ -1,0 +1,3055 @@
+/* Settings on the desktop: the shell and the shared materials (redesign slice
+   8a). Every tab keeps its layout, words and behaviour; what changes is the
+   surface, the header, the tab tray and the controls the pages share, in the
+   colours and flat surfaces the session already has (kleio-theme.css).
+
+   Loaded after kleio-pages.css, so it wins ties with the pages' own rules, and
+   before kleio-phone.css. Everything is scoped to the desktop and to
+   `.settings-screen` (SettingsScreen.tsx), so the dialogs these pages open
+   (they mount on <body>), the tray's Settings dialog, the two other screens
+   that reuse the tab bar (KleioScreen, the Checklist) and the iPhone keep
+   today's look. */
+
+/* ── The surface ── the session's: matte, with the still oxblood bloom in two
+   corners. !important twice: App.tsx sets the `background` shorthand inline,
+   which would also clear the bloom. */
+html:not(.platform-ios) .app:has(> .settings-screen) {
+  background-color: #161213 !important;
+  background-image:
+    radial-gradient(
+      620px 500px at 0 0,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    ),
+    radial-gradient(
+      620px 500px at 100% 100%,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    ) !important;
+}
+/* The bloom replaces the moving ambient glow. */
+html:not(.platform-ios) .app:has(> .settings-screen)::before {
+  display: none;
+}
+
+/* ── Tokens ── the pages read the app's old tokens, so they are re-pointed
+   here rather than chased rule by rule. No amber: what waited in amber waits
+   in lapis; done is verdigris; a fault stays red (--error). The accent is ink,
+   so the one filled button on a page is ink with a dark label. */
+html:not(.platform-ios) .settings-screen {
+  /* What a page cuts out of itself (a status dot's ring) is the surface. */
+  --bg: #161213;
+  --text: var(--kleio-ink);
+  --text-secondary: var(--kleio-text-2);
+  --text-muted: var(--kleio-muted);
+  --text-dim: var(--kleio-muted);
+  --border: var(--kleio-rule);
+  --border-strong: var(--kleio-rule-strong);
+  --success: var(--kleio-done);
+  --warning: var(--kleio-lapis);
+  --glow: transparent;
+  --primary: var(--kleio-ink);
+  --primary-hi: #fff;
+  --on-primary: #161213;
+  --secondary: var(--kleio-ink);
+  /* Keyboard focus is the lapis outline below, never a glow. */
+  --focus-ring: none;
+}
+
+/* No glass anywhere in Settings: nothing blurs what is behind it. */
+html:not(.platform-ios) .settings-screen,
+html:not(.platform-ios) .settings-screen * {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Keyboard focus: a 2px lapis ring on every control. */
+html:not(.platform-ios)
+  .settings-screen
+  :is(button, a, input, select, textarea, summary, [tabindex], [role="tab"]):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* ── The header ── Back, the page's name and its status, on one strong
+   hairline like the session's chrome. */
+html:not(.platform-ios) .settings-screen > .picker-head {
+  border-bottom-color: var(--kleio-rule-strong);
+}
+/* The title outranks the section titles (15px). Its line is the control row's
+   height, so the header stays as tall as the session's. */
+html:not(.platform-ios) .settings-screen h1.picker-title {
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 28px;
+  letter-spacing: -0.02em;
+  color: var(--kleio-ink);
+}
+/* ── The tab tray ── in flow under the page, so nothing scrolls beneath it:
+   one solid box (the plan tray's surface and rule), no shadow. */
+html:not(.platform-ios) .settings-screen > .settings-scroll {
+  min-height: 0;
+}
+html:not(.platform-ios) .settings-screen > .settings-tab-dock {
+  position: static;
+  flex: none;
+  padding: 12px 0 16px;
+}
+html:not(.platform-ios) .settings-screen .settings-page {
+  padding-bottom: 24px;
+}
+html:not(.platform-ios) .settings-screen .settings-tabs {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+  background: var(--kleio-surface);
+  box-shadow: none;
+}
+/* The pill that travels to the selected tab: a flat plate. */
+html:not(.platform-ios) .settings-screen .settings-tabs-pill {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: none;
+}
+html:not(.platform-ios) .settings-screen .settings-tab {
+  border-radius: 7px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .settings-tab:hover:not(.is-active) {
+  background: rgb(255 255 255 / 0.04);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .settings-tab.is-active {
+  color: var(--kleio-ink);
+}
+/* Inside the tray's edge, so the ring is never cut by the window's foot. */
+html:not(.platform-ios) .settings-screen .settings-tab:focus-visible {
+  outline-offset: 1px;
+}
+/* Something on this tab needs attention: a still red dot, no glow. */
+html:not(.platform-ios) .settings-screen .settings-tab-alert {
+  background: var(--error);
+  box-shadow: none;
+}
+
+/* ── Sections ── a card is a hairline section: no fill, no rim. */
+html:not(.platform-ios) .settings-screen .settings-card {
+  padding: 20px 0 4px;
+  border: 0;
+  border-top: 1px solid var(--kleio-rule);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+/* The first section of a page or a column starts under the header's own rule
+   (a panel's hidden heading comes before its first section). */
+html:not(.platform-ios) .settings-screen .settings-card:first-child,
+html:not(.platform-ios) .settings-screen .settings-panel > .sr-only:first-child + .settings-card {
+  padding-top: 0;
+  border-top: 0;
+}
+/* Narrow windows stack the columns, so the second column's first section
+   follows the first column's last and takes its rule back. */
+@media (max-width: 759px) {
+  html:not(.platform-ios)
+    .settings-screen
+    .settings-col
+    + .settings-col
+    > .settings-card:first-child {
+    padding-top: 20px;
+    border-top: 1px solid var(--kleio-rule);
+  }
+}
+html:not(.platform-ios) .settings-screen .settings-section-title {
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen :is(.settings-desc, .modal-hint) {
+  font-size: 14px;
+  line-height: 1.5;
+}
+html:not(.platform-ios) .settings-screen .settings-desc {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .settings-card-sub {
+  color: var(--kleio-muted);
+}
+
+/* ── Buttons ── quiet rectangles that never change size. The page's one
+   filled button is ink; the rest are outlines that turn lapis on hover. */
+html:not(.platform-ios) .settings-screen :is(.btn, .modal-btn, .icon-circle) {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+}
+html:not(.platform-ios) .settings-screen :is(.btn, .modal-btn) {
+  border-radius: 7px;
+  box-shadow: none;
+  filter: none;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .settings-screen :is(.btn-ghost, .modal-btn:not(.primary)),
+html:not(.platform-ios)
+  .settings-screen
+  :is(.btn-ghost, .modal-btn:not(.primary)):hover:not(:disabled) {
+  border-color: var(--kleio-rule-strong);
+  background: none;
+  color: var(--kleio-text-2);
+  filter: none;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.btn-ghost, .modal-btn:not(.primary)):is(:hover, :focus-visible):not(:disabled) {
+  border-color: color-mix(in srgb, var(--kleio-lapis) 55%, transparent);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen :is(.btn-primary, .modal-btn.primary),
+html:not(.platform-ios)
+  .settings-screen
+  :is(.btn-primary, .modal-btn.primary):hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--kleio-ink);
+  color: #161213;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.btn-primary, .modal-btn.primary):hover:not(:disabled) {
+  background: #fff;
+}
+/* Disabled: clearly off and still legible, not a 40% wash. */
+html:not(.platform-ios) .settings-screen :is(.btn, .modal-btn):disabled {
+  opacity: 1;
+  border: 1px dashed var(--kleio-rule-strong);
+  background: none;
+  color: var(--kleio-muted);
+}
+
+/* Back: a bare chevron, lapis on hover and focus. */
+html:not(.platform-ios) .settings-screen > .picker-head > .btn.btn-icon,
+html:not(.platform-ios) .settings-screen > .picker-head > .btn.btn-icon:hover:not(:disabled) {
+  border-color: transparent;
+  background: none;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios)
+  .settings-screen
+  > .picker-head
+  > .btn.btn-icon:is(:hover, :focus-visible):not(:disabled) {
+  border-color: transparent;
+  color: var(--kleio-lapis);
+}
+
+/* ── Fields ── a flat field on a hairline; lapis while it has focus.
+   !important: glass.css sets this background with !important. */
+html:not(.platform-ios) .settings-screen .modal-input {
+  border-color: var(--kleio-rule-strong);
+  border-radius: 7px;
+  background: rgb(0 0 0 / 0.18) !important;
+  box-shadow: none;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .modal-input:focus {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .modal-input::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+
+/* ── Switches ── the session's: a small square track; off, the thumb sits
+   left; on, it sits right and brightens. No bead, no halo, no swell. */
+html:not(.platform-ios) .settings-screen .cl-switch {
+  width: 26px;
+  height: 14px;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .cl-switch > input {
+  background: none;
+}
+html:not(.platform-ios) .settings-screen .cl-switch > input + span::before,
+html:not(.platform-ios) .settings-screen .cl-switch > input:active + span::before {
+  float: none;
+  display: block;
+  box-sizing: border-box;
+  width: 26px;
+  height: 14px;
+  margin: 0;
+  border: 1px solid var(--kleio-muted);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .settings-screen .cl-switch > input + span::after,
+html:not(.platform-ios) .settings-screen .cl-switch:hover > input:not(:disabled) + span::after,
+html:not(.platform-ios) .settings-screen .cl-switch > input:active:not(:disabled) + span::after {
+  top: 3px;
+  right: auto;
+  left: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: var(--kleio-text-2);
+  box-shadow: none;
+  scale: none;
+  transition: transform var(--t-fast);
+}
+html:not(.platform-ios) .settings-screen .cl-switch > input:checked + span::before,
+html:not(.platform-ios) .settings-screen .cl-switch > input:checked:active + span::before {
+  border-color: var(--kleio-text-2);
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .settings-screen .cl-switch > input:checked + span::after,
+html:not(.platform-ios)
+  .settings-screen
+  .cl-switch:hover
+  > input:checked:not(:disabled)
+  + span::after {
+  background: var(--kleio-ink);
+  transform: translateX(12px);
+}
+html:not(.platform-ios) .settings-screen .cl-switch:hover > input:not(:disabled) + span::before {
+  border-color: var(--kleio-lapis);
+}
+/* The checkbox is hidden, so keyboard focus rings its track. */
+html:not(.platform-ios) .settings-screen .cl-switch > input:focus-visible {
+  outline: none;
+}
+html:not(.platform-ios) .settings-screen .cl-switch > input:focus-visible + span::before {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 3px;
+}
+
+/* ── Badges ── status only: a flat outline pill, 12px. !important twice: a
+   coloured badge sets its gradient and its shadow inline (Badge.tsx). */
+html:not(.platform-ios) .settings-screen .badge {
+  padding: 1px 9px 2px;
+  border-color: var(--kleio-rule-strong);
+  background: none !important;
+  box-shadow: none !important;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ── A device's or a relay's row ── no fill, rim or glow; a hairline. */
+html:not(.platform-ios) .settings-screen .conn-device {
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--kleio-rule);
+  filter: none;
+}
+/* A provider's "connected" dot: no halo. */
+html:not(.platform-ios) .settings-screen .login-conn-dot {
+  box-shadow: none;
+}
+/* Setup's callout. */
+html:not(.platform-ios) .settings-screen .setup-callout {
+  border-radius: 12px;
+  background: none;
+  box-shadow: none;
+}
+/* Round icon buttons (try dictation): an outline, lapis on hover. */
+html:not(.platform-ios) .settings-screen .icon-circle,
+html:not(.platform-ios) .settings-screen .icon-circle:hover:not(:disabled) {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--kleio-rule-strong);
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .icon-circle:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--kleio-lapis);
+}
+
+/* ═══ Slice 8b: Overview, Kleio and the Remove group ═══════════════════════
+   The desktop's two new pages (OverviewPage.tsx, KleioPage.tsx) and the group
+   a page ends with (RemoveGroup.tsx). Kleio's own sentences are set in Mukta
+   Malar, upright; everything else is the sans. Two small things move, and
+   only without reduced motion: the Host dot's slow breath while connected,
+   and the ring of the voice mark while her voice is ready. */
+
+/* ── Shared ── a small tracked label over a section. */
+html:not(.platform-ios) .settings-screen :is(.st-label, .ov-hero-eyebrow, .app-key-note-label) {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--kleio-muted);
+}
+/* Small buttons on these pages: a calm 30px rectangle. */
+html:not(.platform-ios) .settings-screen :is(.ov-page, .kl-page, .st-danger) .btn-sm {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+/* A quiet text button (Try again, Set up, Keep it on). */
+html:not(.platform-ios) .settings-screen :is(.st-text-btn, .ov-text-action) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .ov-text-action {
+  text-decoration: underline;
+  text-decoration-color: var(--kleio-rule-strong);
+  text-underline-offset: 3px;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.st-text-btn, .ov-text-action):is(:hover, :focus-visible):not(:disabled) {
+  color: var(--kleio-lapis);
+}
+
+/* ── Overview ── */
+/* Neither page tightens its letters: Mukta Malar and the rows sit at their own spacing. */
+html:not(.platform-ios) .settings-screen :is(.ov-page, .kl-page) {
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .settings-screen .ov-page {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding-top: 28px;
+}
+html:not(.platform-ios) .settings-screen .ov-page.is-loading {
+  min-height: 240px;
+}
+/* Kleio's own words: her face, upright, at its regular weight. */
+html:not(.platform-ios) .settings-screen .ov-headline {
+  margin: 0;
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 34px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: 0;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .ov-sub {
+  margin: 4px 0 0;
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ov-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+
+/* Progress: one segment per needed step. */
+html:not(.platform-ios) .settings-screen .ov-progress {
+  display: flex;
+  gap: 6px;
+  max-width: 360px;
+  margin-top: 22px;
+}
+html:not(.platform-ios) .settings-screen .ov-seg {
+  flex: 1 1 0;
+  height: 3px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.12);
+}
+html:not(.platform-ios) .settings-screen .ov-seg.is-next {
+  background: rgb(255 255 255 / 0.34);
+}
+html:not(.platform-ios) .settings-screen .ov-seg.is-done {
+  background: var(--kleio-done);
+}
+
+/* Healthy: one thing she remembers, which opens Kleio. */
+html:not(.platform-ios) .settings-screen .ov-memory {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 14px;
+  align-items: center;
+  column-gap: 16px;
+  margin-top: 18px;
+  padding: 12px 8px;
+  border-radius: 7px;
+  color: inherit;
+  text-decoration: none;
+}
+html:not(.platform-ios) .settings-screen .ov-memory-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen :is(.ov-memory-label, .ov-memory-quote) {
+  font-family: "Mukta Malar", var(--sans);
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.45;
+}
+html:not(.platform-ios) .settings-screen .ov-memory-label {
+  font-size: 14px;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ov-memory-quote {
+  font-size: 16px;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+/* A real memory can run to seven lines; two keep the rows on the first screen. Brain has the rest. */
+html:not(.platform-ios) .settings-screen :is(.ov-memory-quote, .kl-quote-text) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* First run: the next needed step, holding the page's one filled button. */
+html:not(.platform-ios) .settings-screen .ov-hero {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 20px;
+  margin-top: 26px;
+  padding: 22px 24px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+}
+html:not(.platform-ios) .settings-screen .ov-hero-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  border: 1px solid rgb(255 255 255 / 0.4);
+  border-radius: 50%;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .ov-hero-text {
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .ov-hero-eyebrow {
+  margin-bottom: 4px;
+}
+html:not(.platform-ios) .settings-screen .ov-hero-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .ov-hero-line {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ov-hero-cta {
+  height: 38px;
+  padding: 0 20px;
+  font-size: 14px;
+}
+
+/* Rows: a glyph in a hairline ring with its state on the rim; what it does
+   for you first, its state second. */
+html:not(.platform-ios) .settings-screen .ov-rows {
+  margin: 26px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--kleio-rule);
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .ov-memory + .ov-rows {
+  margin-top: 8px;
+}
+html:not(.platform-ios) .settings-screen .ov-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .ov-row-main {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: 40px minmax(0, 1fr) 14px;
+  align-items: center;
+  column-gap: 16px;
+  min-width: 0;
+  min-height: 64px;
+  box-sizing: border-box;
+  padding: 10px 8px;
+  border-radius: 7px;
+  color: inherit;
+  text-decoration: none;
+}
+/* Inside the row's own hairlines, so the ring is never cut by a neighbour. */
+html:not(.platform-ios) .settings-screen :is(.ov-row-link, .ov-memory):focus-visible {
+  outline-offset: -2px;
+}
+html:not(.platform-ios) .settings-screen :is(.ov-row-link, .ov-memory):hover {
+  background: rgb(255 255 255 / 0.03);
+}
+html:not(.platform-ios) .settings-screen .ov-glyph {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgb(255 255 255 / 0.2);
+  border-radius: 50%;
+  color: var(--kleio-text-2);
+}
+/* The mark: verdigris filled when fine; a red ring for a fault; a lapis ring
+   when it waits on you; a muted hollow ring for the rest. Never amber. */
+html:not(.platform-ios) .settings-screen .ov-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--kleio-muted);
+  border-radius: 50%;
+  background: var(--bg);
+}
+html:not(.platform-ios) .settings-screen .ov-dot.is-ok {
+  border-color: var(--kleio-done);
+  background: var(--kleio-done);
+}
+html:not(.platform-ios) .settings-screen .ov-dot.is-fault {
+  border-color: var(--error);
+}
+html:not(.platform-ios) .settings-screen .ov-dot:is(.is-unset, .is-signin) {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .ov-dot.is-waiting {
+  border-style: dashed;
+}
+html:not(.platform-ios) .settings-screen .ov-dot.is-checking {
+  border-style: dotted;
+}
+html:not(.platform-ios) .settings-screen .ov-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .ov-benefit {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .ov-status {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .ov-row:is(.is-fault, .is-unset, .is-signin) .ov-status {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios)
+  .settings-screen
+  .ov-row:is(.is-optional, .is-waiting, .is-unknown, .is-checking)
+  .ov-benefit {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ov-chevron {
+  color: var(--kleio-muted);
+  opacity: 0;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.ov-row-link, .ov-memory):is(:hover, :focus-visible)
+  .ov-chevron {
+  opacity: 1;
+}
+html:not(.platform-ios) .settings-screen .ov-row-action {
+  flex: none;
+  padding-right: 8px;
+}
+/* Alive: the host's dot breathes, slowly, while it is connected. */
+@media (prefers-reduced-motion: no-preference) {
+  html:not(.platform-ios) .settings-screen .ov-row[data-row="host"].is-ok .ov-dot {
+    animation: kleio-ov-breathe 5s ease-in-out infinite;
+  }
+}
+@keyframes kleio-ov-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(102 180 140 / 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgb(102 180 140 / 0.16);
+  }
+}
+
+/* ── Kleio ── */
+html:not(.platform-ios) .settings-screen .kl-page {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding-top: 18px;
+}
+html:not(.platform-ios) .settings-screen .kl-voice {
+  display: grid;
+  grid-template-columns: 188px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 48px;
+  padding: 16px 0 40px;
+}
+/* The voice mark: ink hairlines, a dim ghost until her voice is ready. */
+html:not(.platform-ios) .settings-screen .kl-orb {
+  display: block;
+  width: 188px;
+  height: 188px;
+  overflow: visible;
+  color: var(--kleio-ink);
+  opacity: 0.42;
+}
+html:not(.platform-ios) .settings-screen .kl-orb.is-live {
+  opacity: 1;
+}
+html:not(.platform-ios) .settings-screen .kl-i {
+  fill: none;
+  stroke: currentColor;
+}
+html:not(.platform-ios) .settings-screen .kl-i-faint {
+  stroke-opacity: 0.16;
+  stroke-width: 0.8;
+}
+html:not(.platform-ios) .settings-screen .kl-i-bezel {
+  stroke-opacity: 0.3;
+  stroke-width: 0.8;
+}
+html:not(.platform-ios) .settings-screen .kl-i-major {
+  stroke-opacity: 0.6;
+  stroke-width: 1.1;
+}
+html:not(.platform-ios) .settings-screen .kl-i-arcs {
+  stroke-dasharray: 46 74 30 90 38 82;
+  stroke-opacity: 0.5;
+  stroke-width: 1.8;
+}
+html:not(.platform-ios) .settings-screen .kl-i-arcs-fine {
+  stroke-dasharray: 120 20 90 30 70 30;
+  stroke-opacity: 0.26;
+  stroke-width: 0.8;
+}
+html:not(.platform-ios) .settings-screen .kl-i-dots {
+  stroke-dasharray: 0 4;
+  stroke-linecap: round;
+  stroke-opacity: 0.42;
+  stroke-width: 1.3;
+}
+html:not(.platform-ios) .settings-screen .kl-i-dots-major {
+  stroke-dasharray: 0 60;
+  stroke-linecap: round;
+  stroke-opacity: 0.75;
+  stroke-width: 2.4;
+}
+html:not(.platform-ios) .settings-screen .kl-i-ring {
+  stroke-opacity: 0.95;
+  stroke-width: 1.3;
+}
+html:not(.platform-ios) .settings-screen .kl-i-index {
+  stroke-opacity: 0.75;
+  stroke-width: 1.1;
+}
+html:not(.platform-ios) .settings-screen .kl-i-rim {
+  fill: rgb(255 255 255 / 0.03);
+  stroke-opacity: 0.34;
+  stroke-width: 0.9;
+}
+html:not(.platform-ios) .settings-screen .kl-i-reticle {
+  stroke-opacity: 0.42;
+  stroke-width: 0.9;
+}
+/* The breath: the primary ring swells and settles, about ten seconds a
+   breath. The page's only motion, and only while her voice is ready. */
+html:not(.platform-ios) .settings-screen .kl-breath {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html:not(.platform-ios) .settings-screen .kl-orb.is-live .kl-breath {
+    animation: kleio-kl-breathe 5.2s ease-in-out infinite alternate;
+  }
+}
+@keyframes kleio-kl-breathe {
+  from {
+    opacity: 0.5;
+    transform: scale(0.982);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.012);
+  }
+}
+html:not(.platform-ios) .settings-screen .kl-voice-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .kl-voice-line {
+  margin: 10px 0 18px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .kl-voice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+}
+html:not(.platform-ios) .settings-screen .kl-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-select-wrap > svg {
+  position: absolute;
+  right: 14px;
+  pointer-events: none;
+}
+html:not(.platform-ios) .settings-screen .kl-select {
+  box-sizing: border-box;
+  width: 280px;
+  max-width: 100%;
+  height: 38px;
+  padding: 0 38px 0 14px;
+  appearance: none;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 7px;
+  background: rgb(0 0 0 / 0.18);
+  font: inherit;
+  font-size: 14px;
+  color: var(--kleio-ink);
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .kl-select:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--kleio-lapis) 55%, transparent);
+}
+html:not(.platform-ios) .settings-screen .kl-select:disabled {
+  border-style: dashed;
+  color: var(--kleio-muted);
+  cursor: default;
+}
+html:not(.platform-ios) .settings-screen .kl-select option {
+  background: #161213;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .kl-talk {
+  height: 38px;
+  padding: 0 20px;
+  font-size: 14px;
+}
+html:not(.platform-ios) .settings-screen .kl-voice-key {
+  width: 100%;
+  max-width: 560px;
+}
+html:not(.platform-ios) .settings-screen .kl-voice-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .kl-voice-controls + .kl-voice-note {
+  margin-top: 10px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-kept-head + .kl-voice-note {
+  margin-top: 16px;
+}
+html:not(.platform-ios) .settings-screen .kl-error {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--error);
+}
+html:not(.platform-ios) .settings-screen .kl-caption {
+  max-width: 560px;
+  margin: 18px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-guide {
+  margin: 8px 0 0 -8px;
+}
+
+/* What she kept: her own lines, quoted in her face, newest first. */
+html:not(.platform-ios) .settings-screen .kl-kept {
+  padding: 26px 0 30px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .kl-kept-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 16px;
+}
+html:not(.platform-ios) .settings-screen .kl-kept-count {
+  font-size: 12px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-quotes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 20px 0 0;
+  padding: 2px 0 2px 22px;
+  border-left: 1px solid var(--kleio-rule-strong);
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .kl-quote {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 24px;
+}
+/* The newest in full ink; older lines recede through text-2 and muted. */
+html:not(.platform-ios) .settings-screen .kl-quote-text {
+  min-width: 0;
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .kl-quote:nth-child(n + 2) .kl-quote-text {
+  font-size: 16px;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .kl-quote:nth-child(n + 3) .kl-quote-text {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-quote-when {
+  flex: none;
+  font-size: 12px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-quote-rest {
+  font-size: 13px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-kept-empty {
+  max-width: 560px;
+  margin: 16px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .kl-kept-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  margin-top: 24px;
+}
+html:not(.platform-ios) .settings-screen .kl-kept-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+html:not(.platform-ios) .settings-screen .kl-kept-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+
+/* Quieter: Dictation and Group chats, side by side. */
+html:not(.platform-ios) .settings-screen .kl-quiet-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 56px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .kl-quiet {
+  min-width: 0;
+  padding: 24px 0 28px;
+}
+html:not(.platform-ios) .settings-screen .kl-quiet-line {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .kl-quiet-note {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-quiet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+html:not(.platform-ios) .settings-screen .kl-quiet-body .settings-desc {
+  margin: 0;
+}
+html:not(.platform-ios) .settings-screen .kl-quiet-body :is(.modal-row, .setup-status) {
+  margin-top: 0;
+}
+html:not(.platform-ios) .settings-screen .kl-quiet-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .kl-disclose > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: -8px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--kleio-text-2);
+  list-style: none;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .kl-disclose > summary::-webkit-details-marker {
+  display: none;
+}
+html:not(.platform-ios) .settings-screen .kl-disclose > summary::before {
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: translateY(-1px) rotate(-45deg);
+}
+html:not(.platform-ios) .settings-screen .kl-disclose[open] > summary::before {
+  transform: translateY(-2px) rotate(45deg);
+}
+html:not(.platform-ios) .settings-screen .kl-disclose > summary:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .kl-disclose .key-field {
+  margin-top: 12px;
+}
+/* The page's one filled button is the voice's (Talk now, or the OpenAI key's
+   Save), so the folded Typesafe form's Save is an outline like the rest. */
+html:not(.platform-ios) .settings-screen .kl-disclose .btn.btn-primary:not(:disabled),
+html:not(.platform-ios) .settings-screen .kl-disclose .btn.btn-primary:hover:not(:disabled) {
+  border-color: var(--kleio-rule-strong);
+  background: none;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios)
+  .settings-screen
+  .kl-disclose
+  .btn.btn-primary:is(:hover, :focus-visible):not(:disabled) {
+  border-color: color-mix(in srgb, var(--kleio-lapis) 55%, transparent);
+  color: var(--kleio-lapis);
+}
+
+/* ── Remove ── last on a page, quiet until asked: red words first, and only
+   the confirm step looks like a decision. */
+html:not(.platform-ios) .settings-screen .st-danger {
+  padding: 22px 0 6px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .st-danger-body {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+}
+html:not(.platform-ios) .settings-screen .st-danger-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  min-height: 44px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .st-danger-what {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .st-danger-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+html:not(.platform-ios) .settings-screen :is(.st-danger-hint, .st-danger-error) {
+  flex-basis: 100%;
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .st-danger-error {
+  color: var(--error);
+}
+html:not(.platform-ios) .settings-screen .st-danger .btn-destructive:not(:disabled),
+html:not(.platform-ios) .settings-screen .st-danger .btn-destructive:hover:not(:disabled) {
+  border-color: transparent;
+  background: none;
+  color: var(--error);
+}
+html:not(.platform-ios)
+  .settings-screen
+  .st-danger
+  .btn-destructive:is(:hover, :focus-visible):not(:disabled) {
+  border-color: color-mix(in srgb, var(--error) 45%, transparent);
+}
+html:not(.platform-ios) .settings-screen .st-danger .btn-destructive.is-confirm:not(:disabled),
+html:not(.platform-ios)
+  .settings-screen
+  .st-danger
+  .btn-destructive.is-confirm:hover:not(:disabled) {
+  border-color: var(--error);
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+}
+
+/* Apps (today's layout): a key the host set itself, said where Remove would be. */
+html:not(.platform-ios) .settings-screen .app-key-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  margin: 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--kleio-rule);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+
+/* ── Narrower windows ── the hero's button drops under its words; below the
+   two-column break the voice mark, the quiet sections and each quote stack. */
+@media (max-width: 1100px) {
+  html:not(.platform-ios) .settings-screen .ov-hero {
+    grid-template-columns: 60px minmax(0, 1fr);
+    row-gap: 16px;
+  }
+  html:not(.platform-ios) .settings-screen .ov-hero-cta {
+    grid-column: 2;
+    justify-self: start;
+  }
+  html:not(.platform-ios) .settings-screen .kl-voice {
+    grid-template-columns: 164px minmax(0, 1fr);
+    column-gap: 36px;
+  }
+  html:not(.platform-ios) .settings-screen .kl-orb {
+    width: 164px;
+    height: 164px;
+  }
+}
+@media (max-width: 759px) {
+  html:not(.platform-ios) .settings-screen .ov-hero {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 18px;
+  }
+  html:not(.platform-ios) .settings-screen .ov-hero-glyph {
+    display: none;
+  }
+  html:not(.platform-ios) .settings-screen .ov-hero-cta {
+    grid-column: 1;
+  }
+  html:not(.platform-ios) .settings-screen .ov-headline {
+    font-size: 28px;
+  }
+  html:not(.platform-ios) .settings-screen .kl-voice {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 18px;
+    padding-bottom: 30px;
+  }
+  html:not(.platform-ios) .settings-screen .kl-orb {
+    width: 112px;
+    height: 112px;
+  }
+  html:not(.platform-ios) .settings-screen .kl-select-wrap,
+  html:not(.platform-ios) .settings-screen .kl-select {
+    width: 100%;
+  }
+  html:not(.platform-ios) .settings-screen .kl-quiet-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  html:not(.platform-ios) .settings-screen .kl-quiet + .kl-quiet {
+    border-top: 1px solid var(--kleio-rule);
+  }
+  html:not(.platform-ios) .settings-screen .kl-quote {
+    flex-direction: column;
+  }
+}
+
+/* ═══ Slice 8c: the scrollbar, AI Providers and Connection ═════════════════
+   The desktop's AI Providers page (ProvidersPage.tsx) and Connection page
+   (ConnectionPage.tsx, ConnectionPath.tsx). Both are set in the sans
+   throughout. One thing moves, and only without reduced motion: a slow light
+   along Connection's path while Kleio is connected. */
+
+/* ── The scrollbar ── the session's, on every tab: 8px, a hairline-coloured
+   thumb, no track. The gutter is always kept and the page gives up the same
+   8px on its right, so nothing moves sideways when a page starts to scroll. */
+html:not(.platform-ios) .settings-screen > .settings-scroll {
+  scrollbar-gutter: stable;
+}
+html:not(.platform-ios) .settings-screen > .settings-scroll > .settings-page {
+  padding-right: 12px;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.settings-scroll, .conn-link-events-box, .kleio-ticket)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.settings-scroll, .conn-link-events-box, .kleio-ticket)::-webkit-scrollbar-track {
+  background: none;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.settings-scroll, .conn-link-events-box, .kleio-ticket)::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--kleio-rule-strong);
+}
+
+/* ── Shared ── a section's later sentences, folded behind a quiet "More". */
+html:not(.platform-ios) .settings-screen .st-more-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: -8px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  list-style: none;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .st-more-summary::-webkit-details-marker {
+  display: none;
+}
+html:not(.platform-ios) .settings-screen .st-more-summary::before {
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: translateY(-1px) rotate(-45deg);
+}
+html:not(.platform-ios) .settings-screen .st-more[open] > .st-more-summary::before {
+  transform: translateY(-2px) rotate(45deg);
+}
+html:not(.platform-ios) .settings-screen .st-more-summary:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .st-more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 2px;
+}
+
+/* ── AI Providers ── one hairline ring. Private models inside it; connected
+   cloud providers either side of it, a row each; the rest under Add a
+   provider. Nothing is filled and nothing moves. */
+html:not(.platform-ios) .settings-screen .pv-page {
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .settings-screen .pv-boundary {
+  --pv-d: 360px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--pv-d) minmax(0, 1fr);
+  align-items: center;
+  column-gap: 36px;
+  padding-top: 8px;
+}
+html:not(.platform-ios) .settings-screen .pv-ring-wrap {
+  position: relative;
+  grid-row: 1 / span var(--pv-rows, 1);
+  grid-column: 2;
+  width: var(--pv-d);
+  height: var(--pv-d);
+}
+html:not(.platform-ios) .settings-screen .pv-ring {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 50%;
+}
+html:not(.platform-ios) .settings-screen .pv-ring-label {
+  position: absolute;
+  top: 11%;
+  right: 0;
+  left: 0;
+  text-align: center;
+}
+/* Kleio's mark at the ring's heart, without its name or its drop shadow. */
+html:not(.platform-ios) .settings-screen .pv-core {
+  position: absolute;
+  top: 18.5%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+html:not(.platform-ios) .settings-screen .pv-core .kleio-mark-img {
+  width: calc(var(--pv-d) * 0.14);
+  filter: none;
+}
+html:not(.platform-ios) .settings-screen .pv-core .kleio-wordmark {
+  display: none;
+}
+/* The private models, in one row across the ring's widest part, placed by
+   the ring's own size so they stay inside it at every width. One row, so a
+   node's tooltip (drawn above it) never covers a neighbour. */
+html:not(.platform-ios) .settings-screen .pv-inside {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .pv-inside > li {
+  position: absolute;
+  top: 38%;
+  width: 29%;
+}
+html:not(.platform-ios) .settings-screen .pv-inside > li:nth-child(1) {
+  left: 6.5%;
+}
+html:not(.platform-ios) .settings-screen .pv-inside > li:nth-child(2) {
+  left: 35.5%;
+}
+html:not(.platform-ios) .settings-screen .pv-inside > li:nth-child(3) {
+  right: 6.5%;
+}
+html:not(.platform-ios) .settings-screen :is(.pv-node, .pv-add-row) {
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .pv-node {
+  border-radius: 10px;
+}
+html:not(.platform-ios) .settings-screen .pv-in {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px 0;
+  text-align: center;
+}
+html:not(.platform-ios) .settings-screen .pv-orb {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgb(255 255 255 / 0.2);
+  border-radius: 50%;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .pv-in .pv-orb {
+  margin-bottom: 6px;
+}
+html:not(.platform-ios) .settings-screen .pv-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+html:not(.platform-ios) .settings-screen .pv-logo-letter {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+}
+/* The mark: verdigris filled when it answers; a muted hollow ring otherwise. */
+html:not(.platform-ios) .settings-screen .pv-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--kleio-muted);
+  border-radius: 50%;
+  background: var(--bg);
+}
+html:not(.platform-ios) .settings-screen .pv-dot.is-on {
+  border-color: var(--kleio-done);
+  background: var(--kleio-done);
+}
+html:not(.platform-ios) .settings-screen .pv-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen :is(.pv-status, .pv-how) {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .pv-node:is(:hover, :focus-visible) .pv-orb {
+  border-color: color-mix(in srgb, var(--kleio-lapis) 55%, transparent);
+}
+html:not(.platform-ios) .settings-screen .pv-node:is(:hover, :focus-visible) .pv-name {
+  color: var(--kleio-lapis);
+}
+/* Outside the ring: the list's rows are the grid's, left and right in turn. */
+html:not(.platform-ios) .settings-screen .pv-outside {
+  display: contents;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .pv-outside > li {
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .pv-outside > li:nth-child(odd) {
+  grid-column: 1;
+  justify-self: end;
+}
+html:not(.platform-ios) .settings-screen .pv-outside > li:nth-child(even) {
+  grid-column: 3;
+  justify-self: start;
+}
+html:not(.platform-ios) .settings-screen .pv-out {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+}
+html:not(.platform-ios) .settings-screen .pv-outside > li:nth-child(odd) .pv-out {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+html:not(.platform-ios) .settings-screen .pv-node-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .pv-caption {
+  max-width: 600px;
+  margin: 22px auto 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+  text-align: center;
+}
+html:not(.platform-ios) .settings-screen .pv-add {
+  margin-top: 30px;
+  padding-top: 22px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .pv-add-line {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+/* The host's error: the fault mark (a red ring), then why, in words. */
+html:not(.platform-ios) .settings-screen .pv-add-line.is-fault {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+html:not(.platform-ios) .settings-screen .pv-add-line.is-fault::before {
+  flex: none;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--error);
+  border-radius: 50%;
+  content: "";
+}
+html:not(.platform-ios) .settings-screen .pv-add-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 40px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .pv-add-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px;
+  border-bottom: 1px solid var(--kleio-rule);
+  text-align: left;
+}
+html:not(.platform-ios) .settings-screen .pv-add-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .pv-add-name {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .pv-add-how {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  white-space: nowrap;
+}
+html:not(.platform-ios) .settings-screen .pv-add-row:hover {
+  background: rgb(255 255 255 / 0.03);
+}
+html:not(.platform-ios) .settings-screen .pv-add-row:is(:hover, :focus-visible) .pv-add-name {
+  color: var(--kleio-lapis);
+}
+/* Inside the row's own hairline, so the ring is never cut by a neighbour. */
+html:not(.platform-ios) .settings-screen .pv-add-row:focus-visible {
+  outline-offset: -2px;
+}
+
+/* ── Connection ── the path, one verdict line, hairline sections, Remove. */
+html:not(.platform-ios) .settings-screen .cx-page {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .settings-screen .cx-page .btn-sm {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+html:not(.platform-ios) .settings-screen .cx-path {
+  --cx-node: 148px;
+  padding: 10px 0 26px;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+/* This Mac, the way through, the host: three nodes and the two hops between. */
+html:not(.platform-ios) .settings-screen .cx-route {
+  position: relative;
+  display: grid;
+  grid-template-columns:
+    var(--cx-node) minmax(56px, 1fr) var(--cx-node) minmax(56px, 1fr)
+    var(--cx-node);
+  align-items: start;
+  max-width: 860px;
+  margin: 0 auto;
+}
+html:not(.platform-ios) .settings-screen .cx-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  text-align: center;
+}
+html:not(.platform-ios) .settings-screen .cx-orb {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 10px;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 50%;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .cx-node.is-hub .cx-orb {
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .cx-node-name {
+  max-width: 100%;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .cx-node-detail {
+  max-width: 100%;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  overflow-wrap: anywhere;
+}
+/* The marks: verdigris filled for fine; a red ring for a fault; a lapis ring
+   for waiting; a muted hollow ring for not known. Never amber. */
+html:not(.platform-ios) .settings-screen :is(.cx-dot, .cx-mark) {
+  box-sizing: border-box;
+  border: 1.5px solid var(--kleio-muted);
+  border-radius: 50%;
+}
+html:not(.platform-ios) .settings-screen .cx-dot {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 12px;
+  height: 12px;
+  background: var(--bg);
+}
+html:not(.platform-ios) .settings-screen .cx-node.is-up .cx-dot,
+html:not(.platform-ios) .settings-screen .cx-mark.is-yes {
+  border-color: var(--kleio-done);
+  background: var(--kleio-done);
+}
+html:not(.platform-ios) .settings-screen .cx-node.is-down .cx-dot {
+  border-color: var(--error);
+}
+html:not(.platform-ios) .settings-screen .cx-node.is-wait .cx-dot,
+html:not(.platform-ios) .settings-screen .cx-mark.is-may_sleep {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .cx-mark.is-checking {
+  border-style: dotted;
+}
+/* The node that fails is dashed, in the colour of its mark. */
+html:not(.platform-ios) .settings-screen .cx-node.is-down .cx-orb {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--error) 70%, transparent);
+}
+html:not(.platform-ios) .settings-screen .cx-node.is-wait .cx-orb {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--kleio-lapis) 70%, transparent);
+}
+html:not(.platform-ios) .settings-screen .cx-node.is-unknown :is(.cx-orb, .cx-node-name) {
+  color: var(--kleio-text-2);
+}
+/* A hop: a hairline at the orbs' middle; dotted while not known; cut where
+   it fails, with Fix in the gap. */
+html:not(.platform-ios) .settings-screen .cx-leg {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 56px;
+}
+html:not(.platform-ios) .settings-screen .cx-seg {
+  flex: 1 1 0;
+  height: 0;
+  border-top: 1px solid rgb(255 255 255 / 0.28);
+}
+html:not(.platform-ios) .settings-screen .cx-leg.is-unknown .cx-seg,
+html:not(.platform-ios) .settings-screen .cx-seg.is-after {
+  border-top: 1px dotted rgb(255 255 255 / 0.34);
+}
+html:not(.platform-ios) .settings-screen .cx-leg.is-break-start .cx-seg:first-child,
+html:not(.platform-ios) .settings-screen .cx-leg.is-break-end .cx-seg.is-after {
+  flex: 0 0 12px;
+}
+html:not(.platform-ios) .settings-screen .cx-gap {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding: 0 8px;
+}
+/* The light: a short ink line that crosses from this Mac to the host every
+   seven seconds, passing behind the way through. No glow. */
+html:not(.platform-ios) .settings-screen .cx-track {
+  position: absolute;
+  top: 27px;
+  right: calc(var(--cx-node) / 2);
+  left: calc(var(--cx-node) / 2);
+  display: none;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 34px,
+    #000 34px calc(50% - 34px),
+    transparent calc(50% - 34px) calc(50% + 34px),
+    #000 calc(50% + 34px) calc(100% - 34px),
+    transparent calc(100% - 34px)
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 34px,
+    #000 34px calc(50% - 34px),
+    transparent calc(50% - 34px) calc(50% + 34px),
+    #000 calc(50% + 34px) calc(100% - 34px),
+    transparent calc(100% - 34px)
+  );
+}
+/* It travels by `left`, so its own box never reaches past the track. */
+html:not(.platform-ios) .settings-screen .cx-light {
+  position: absolute;
+  top: 0;
+  left: -36px;
+  width: 36px;
+  height: 100%;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--kleio-ink) 35%,
+    var(--kleio-ink) 65%,
+    transparent
+  );
+}
+@media (prefers-reduced-motion: no-preference) {
+  html:not(.platform-ios) .settings-screen .cx-track {
+    display: block;
+  }
+  html:not(.platform-ios) .settings-screen .cx-light {
+    animation: kleio-cx-light 7s linear infinite;
+  }
+}
+@keyframes kleio-cx-light {
+  0% {
+    left: -36px;
+  }
+  42%,
+  100% {
+    left: 100%;
+  }
+}
+/* The verdict: one line under the path, in the sans; what it means only
+   when something is wrong. */
+html:not(.platform-ios) .settings-screen .cx-verdict {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-top: 22px;
+  text-align: center;
+}
+html:not(.platform-ios) .settings-screen .cx-verdict-line {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .cx-verdict-detail {
+  max-width: 620px;
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .cx-verdict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+html:not(.platform-ios) .settings-screen .cx-fix-steps {
+  max-width: 620px;
+  margin: 20px auto 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .cx-fix-steps[hidden] {
+  display: none;
+}
+html:not(.platform-ios) .settings-screen .cx-fix-steps .conn-steps {
+  margin-top: 10px;
+  font-size: 14px;
+}
+/* A section's own state: its mark, then the line that says it. */
+html:not(.platform-ios) .settings-screen .cx-state {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+html:not(.platform-ios) .settings-screen .cx-mark {
+  flex: none;
+  width: 10px;
+  height: 10px;
+}
+html:not(.platform-ios) .settings-screen .cx-quiet {
+  color: var(--kleio-muted);
+}
+/* Relays and devices: hairline rows, their glyph in a hairline ring. */
+html:not(.platform-ios) .settings-screen .cx-page .conn-devices {
+  gap: 0;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .cx-page .conn-device,
+html:not(.platform-ios) .settings-screen .cx-page .conn-device:hover {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--kleio-rule);
+  border-radius: 0;
+  box-shadow: none;
+}
+html:not(.platform-ios) .settings-screen .cx-page .conn-device-icon {
+  border-radius: 50%;
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--kleio-rule-strong);
+}
+/* The link's path events: no box, one rule down their left. */
+html:not(.platform-ios) .settings-screen .cx-page .conn-link-events-box {
+  padding: 2px 0 2px 12px;
+  border: 0;
+  border-left: 1px solid var(--kleio-rule-strong);
+  border-radius: 0;
+  background: none;
+}
+/* One filled button at rest: Fix when something is broken, else Show pairing
+   QR. Switch to Kleio's link, the relays' Save and Use it now, and Pair under
+   Advanced are outlines; so is Show pairing QR while Fix is filled. */
+html:not(.platform-ios) .settings-screen .cx-page .conn-row .btn-primary:not(:disabled),
+html:not(.platform-ios) .settings-screen .cx-page .conn-row .btn-primary:hover:not(:disabled),
+html:not(.platform-ios)
+  .settings-screen
+  .cx-page:has(.cx-fix.btn-primary)
+  .conn-pair-start
+  .btn-primary:not(:disabled),
+html:not(.platform-ios)
+  .settings-screen
+  .cx-page:has(.cx-fix.btn-primary)
+  .conn-pair-start
+  .btn-primary:hover:not(:disabled) {
+  border-color: var(--kleio-rule-strong);
+  background: none;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios)
+  .settings-screen
+  .cx-page
+  .conn-row
+  .btn-primary:is(:hover, :focus-visible):not(:disabled),
+html:not(.platform-ios)
+  .settings-screen
+  .cx-page:has(.cx-fix.btn-primary)
+  .conn-pair-start
+  .btn-primary:is(:hover, :focus-visible):not(:disabled) {
+  border-color: color-mix(in srgb, var(--kleio-lapis) 55%, transparent);
+  color: var(--kleio-lapis);
+}
+
+/* ── Narrower windows ── below the two-column break the connected providers
+   sit in a row under the ring, Add a provider is one column, and the path's
+   nodes draw closer. */
+@media (min-width: 1300px) {
+  html:not(.platform-ios) .settings-screen .pv-boundary {
+    --pv-d: 400px;
+  }
+}
+@media (max-width: 759px) {
+  html:not(.platform-ios) .settings-screen .pv-boundary {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    row-gap: 14px;
+  }
+  html:not(.platform-ios) .settings-screen .pv-ring-wrap {
+    grid-row: auto;
+    grid-column: 1;
+  }
+  html:not(.platform-ios) .settings-screen .pv-outside {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px 10px;
+  }
+  html:not(.platform-ios) .settings-screen .pv-outside > li:nth-child(n) .pv-out {
+    flex-direction: row;
+    text-align: left;
+  }
+  html:not(.platform-ios) .settings-screen .pv-add-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  html:not(.platform-ios) .settings-screen .cx-path {
+    --cx-node: 104px;
+  }
+}
+@media (max-width: 480px) {
+  html:not(.platform-ios) .settings-screen .pv-boundary {
+    --pv-d: 300px;
+  }
+  html:not(.platform-ios) .settings-screen .pv-in .pv-orb {
+    width: 38px;
+    height: 38px;
+    margin-bottom: 4px;
+  }
+  /* In the gap of a short hop, Fix is as narrow as its word allows. */
+  html:not(.platform-ios) .settings-screen .cx-gap {
+    padding: 0 4px;
+  }
+  html:not(.platform-ios) .settings-screen .cx-page .cx-fix {
+    padding: 0 10px;
+  }
+}
+
+/* ═══ Slice 8d: Apps and Tools ═════════════════════════════════════════════
+   The desktop's Apps page (AppsShelf.tsx) is set in the sans throughout. Tools
+   (ToolsPage.tsx) sets its bench in the app's mono: the ruler, names, counts,
+   each server's kind and short form, commands and the fields. Its headings,
+   buttons, sentences, notes and steps are in the sans. Nothing moves on
+   either page. */
+
+html:not(.platform-ios) .settings-screen :is(.ap-page, .tl-page) {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .settings-screen :is(.ap-page, .tl-page) .btn-sm {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+html:not(.platform-ios) .settings-screen :is(.ap-page, .tl-page) > .st-danger,
+html:not(.platform-ios) .settings-screen .ap-page > .app-key-note {
+  margin-top: 30px;
+}
+html:not(.platform-ios) .settings-screen .st-text-btn:disabled {
+  cursor: default;
+}
+
+/* ── Apps ── the shelf: every connection stands on one hairline, its state on
+   the rim of its tile and in a line under its name. */
+html:not(.platform-ios) .settings-screen .ap-shelf-wrap {
+  /* One app's place on the shelf; AppsShelf.tsx reads it to fill each row. */
+  --ap-item: 224px;
+  padding: 8px 0 28px;
+  text-align: center;
+}
+html:not(.platform-ios) .settings-screen .ap-shelf {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+html:not(.platform-ios) .settings-screen .ap-shelf-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+/* The shelf itself: one plain hairline under the icons' feet, fading at both
+   ends. No light under it. */
+html:not(.platform-ios) .settings-screen .ap-shelf-row::before {
+  position: absolute;
+  top: 62px;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: rgb(255 255 255 / 0.22);
+  content: "";
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 16%, #000 84%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 16%, #000 84%, transparent);
+  pointer-events: none;
+}
+html:not(.platform-ios) .settings-screen .ap-shelf.is-empty .ap-shelf-row::before {
+  opacity: 0.6;
+}
+html:not(.platform-ios) .settings-screen :is(.ap-item, .ap-slot) {
+  position: relative;
+  box-sizing: border-box;
+  width: var(--ap-item);
+  padding: 6px 10px 0;
+}
+html:not(.platform-ios) .settings-screen .ap-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+/* A place nothing stands on yet. */
+html:not(.platform-ios) .settings-screen .ap-slot {
+  height: 74px;
+}
+html:not(.platform-ios) .settings-screen .ap-slot::before {
+  display: block;
+  box-sizing: border-box;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto;
+  border: 1px dashed rgb(255 255 255 / 0.2);
+  border-radius: 24%;
+  content: "";
+}
+/* An app's tile: a hairline around its first letter. Once its logo has
+   loaded the tile turns light, so a dark mark stays legible: the page's one
+   filled thing. */
+html:not(.platform-ios) .settings-screen .ap-icon {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1px solid rgb(255 255 255 / 0.26);
+  border-radius: 24%;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .ap-icon.has-logo {
+  border-color: transparent;
+  background: #f3efef;
+}
+html:not(.platform-ios) .settings-screen .ap-icon img {
+  display: block;
+  object-fit: contain;
+}
+/* Still loading: in place, so it does load, and not yet seen. */
+html:not(.platform-ios) .settings-screen .ap-icon:not(.has-logo) img {
+  position: absolute;
+  opacity: 0;
+}
+html:not(.platform-ios) .settings-screen .ap-icon-letter {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+}
+html:not(.platform-ios) .settings-screen .ap-item .ap-icon-letter {
+  font-size: 21px;
+  font-weight: 400;
+}
+/* The mark: verdigris filled when connected; a lapis ring while it waits on
+   you (signing in, expired, didn't connect); a muted hollow ring otherwise. */
+html:not(.platform-ios) .settings-screen .ap-dot {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  box-sizing: border-box;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--kleio-muted);
+  border-radius: 50%;
+  background: var(--bg);
+}
+html:not(.platform-ios) .settings-screen .ap-dot.is-connected {
+  border-color: var(--kleio-done);
+  background: var(--kleio-done);
+}
+html:not(.platform-ios) .settings-screen .ap-dot:is(.is-pending, .is-expired, .is-failed) {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .ap-name {
+  max-width: 100%;
+  margin-top: 14px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+/* The line wraps and is never cut. */
+html:not(.platform-ios) .settings-screen .ap-line {
+  max-width: 100%;
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--kleio-muted);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios)
+  .settings-screen
+  .ap-item:is(.is-pending, .is-expired, .is-failed)
+  .ap-line {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ap-inline-btn {
+  margin-left: 8px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  font: inherit;
+  color: var(--kleio-lapis);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--kleio-lapis) 50%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .ap-inline-btn:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .ap-inline-btn:disabled {
+  color: var(--kleio-muted);
+  cursor: default;
+}
+html:not(.platform-ios) .settings-screen :is(.ap-shelf-line, .ap-notice) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 10px;
+  margin: 16px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ap-notice {
+  margin-top: 12px;
+  font-size: 14px;
+}
+html:not(.platform-ios) .settings-screen .ap-caption {
+  max-width: 560px;
+  margin: 12px auto 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ap-setup {
+  max-width: 560px;
+  margin: 0 auto;
+}
+html:not(.platform-ios) .settings-screen .ap-setup-note {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+  text-align: center;
+}
+/* A connect that didn't work: the fault mark (a red ring), then why, in words. */
+html:not(.platform-ios) .settings-screen .ap-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 12px;
+  margin: 0 0 24px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ap-error > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  text-align: left;
+}
+html:not(.platform-ios) .settings-screen .ap-error > span::before {
+  flex: none;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--error);
+  border-radius: 50%;
+  content: "";
+}
+
+/* Add an app: a labelled search, then two columns of hairline rows, quieter
+   than the shelf. Each row is one button. */
+html:not(.platform-ios) .settings-screen .ap-add {
+  padding-top: 22px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .ap-search {
+  position: relative;
+  display: block;
+  margin-top: 14px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ap-search > svg {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+html:not(.platform-ios) .settings-screen .ap-search-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px 0 36px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 7px;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  color: var(--kleio-ink);
+  -webkit-appearance: none;
+  appearance: none;
+}
+html:not(.platform-ios) .settings-screen .ap-search-input:focus {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .ap-search-input::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+html:not(.platform-ios) .settings-screen .ap-search-input:disabled {
+  border-style: dashed;
+  cursor: not-allowed;
+}
+/* The field's clear button, in the page's muted ink rather than the system's. */
+html:not(.platform-ios) .settings-screen .ap-search-input::-webkit-search-cancel-button {
+  width: 14px;
+  height: 14px;
+  background: var(--kleio-muted);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 4l8 8M12 4l-8 8' stroke='black' stroke-width='1.3' stroke-linecap='round'/></svg>")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 4l8 8M12 4l-8 8' stroke='black' stroke-width='1.3' stroke-linecap='round'/></svg>")
+    center / contain no-repeat;
+}
+html:not(.platform-ios) .settings-screen .ap-search-input::-webkit-search-cancel-button:hover {
+  background: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .ap-add-note {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ap-add-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 40px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .ap-add-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 50px;
+  padding: 8px;
+  border: 0;
+  border-bottom: 1px solid var(--kleio-rule);
+  border-radius: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .ap-add-row.is-ready,
+html:not(.platform-ios) .settings-screen button.ap-add-row:disabled {
+  cursor: default;
+}
+html:not(.platform-ios) .settings-screen button.ap-add-row:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.03);
+}
+html:not(.platform-ios) .settings-screen .ap-add-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .ap-add-name {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .ap-add-cat {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ap-add-how {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  white-space: nowrap;
+}
+html:not(.platform-ios)
+  .settings-screen
+  button.ap-add-row:is(:hover, :focus-visible):not(:disabled)
+  :is(.ap-add-name, .ap-add-how) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .ap-add-how.is-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--kleio-done);
+}
+/* Inside the row's own hairline, so the ring is never cut by a neighbour. */
+html:not(.platform-ios) .settings-screen .ap-add-row:focus-visible {
+  outline-offset: -2px;
+}
+html:not(.platform-ios) .settings-screen .ap-add-empty {
+  margin: 16px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ap-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+/* ── Tools ── the workbench: one row per server, its tools as ticks on one
+   shared scale. */
+html:not(.platform-ios) .settings-screen .tl-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+html:not(.platform-ios) .settings-screen .tl-head-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Global or Project: two pressed segments. */
+html:not(.platform-ios) .settings-screen .tl-scope {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 7px;
+}
+html:not(.platform-ios) .settings-screen .tl-scope-btn {
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .tl-scope-btn:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .tl-scope-btn.is-selected {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.32);
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .tl-lede {
+  margin: 6px 0 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+/* The fields: a hairline box with no fill, lapis while it has focus (and the
+   ring every control gets). */
+html:not(.platform-ios) .settings-screen .tl-input {
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 7px;
+  background: none;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .tl-input:focus {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .tl-input::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+html:not(.platform-ios) .settings-screen .tl-project {
+  display: block;
+  width: 100%;
+  margin: 0 0 14px;
+}
+
+html:not(.platform-ios) .settings-screen .tl-bench {
+  border-top: 1px solid rgb(255 255 255 / 0.22);
+}
+html:not(.platform-ios) .settings-screen :is(.tl-ruler, .tl-row) {
+  display: grid;
+  grid-template-columns: 14px minmax(120px, 220px) minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 14px;
+}
+html:not(.platform-ios) .settings-screen .tl-ruler {
+  height: 34px;
+  border-bottom: 1px solid var(--kleio-rule);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .tl-ruler-name {
+  grid-column: 2;
+}
+html:not(.platform-ios) .settings-screen .tl-ruler-scale {
+  position: relative;
+  grid-column: 3;
+  align-self: stretch;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .tl-mark {
+  position: absolute;
+  bottom: 9px;
+  left: calc(var(--n) * var(--tl-pitch));
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  transform: translateX(-50%);
+}
+html:not(.platform-ios) .settings-screen .tl-mark::after {
+  position: absolute;
+  bottom: -9px;
+  left: 50%;
+  width: 1px;
+  height: 5px;
+  background: rgb(255 255 255 / 0.32);
+  content: "";
+}
+html:not(.platform-ios) .settings-screen .tl-unit {
+  position: absolute;
+  bottom: 9px;
+  left: calc(var(--n) * var(--tl-pitch) + 20px);
+}
+html:not(.platform-ios) .settings-screen .tl-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .tl-row {
+  row-gap: 4px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+/* The mark: verdigris filled for working; a lapis ring for "needs sign-in"; a
+   red ring for "failed" and "held back". The word is on the row too. */
+html:not(.platform-ios) .settings-screen .tl-dot {
+  justify-self: center;
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--kleio-done);
+  border-radius: 50%;
+  background: var(--kleio-done);
+}
+html:not(.platform-ios) .settings-screen .tl-row.is-auth .tl-dot {
+  border-color: var(--kleio-lapis);
+  background: none;
+}
+html:not(.platform-ios) .settings-screen .tl-row:is(.is-failed, .is-held) .tl-dot {
+  border-color: var(--error);
+  background: none;
+}
+html:not(.platform-ios) .settings-screen .tl-name {
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .tl-track {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+/* Ticks: one per tool, every fifth taller, on the ruler's pitch. A line holds
+   as many as the ruler shows (ToolsPage.tsx measures it), then they wrap. */
+html:not(.platform-ios) .settings-screen .tl-ticks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 4px calc(var(--tl-pitch) - 1px);
+  box-sizing: border-box;
+  max-width: calc(var(--tl-per-row, 60) * var(--tl-pitch));
+  min-height: 16px;
+  padding-left: calc(var(--tl-pitch) - 1px);
+}
+html:not(.platform-ios) .settings-screen .tl-tick {
+  flex: none;
+  width: 1px;
+  height: 11px;
+  background: rgb(246 241 241 / 0.8);
+}
+html:not(.platform-ios) .settings-screen .tl-tick:nth-child(5n) {
+  height: 16px;
+}
+html:not(.platform-ios) .settings-screen .tl-row:not(.is-ok) .tl-tick {
+  background: rgb(246 241 241 / 0.22);
+}
+html:not(.platform-ios) .settings-screen .tl-tick-run {
+  flex: 0 0 56px;
+  align-self: center;
+  height: 0;
+  border-top: 1px dotted rgb(255 255 255 / 0.26);
+}
+html:not(.platform-ios) .settings-screen :is(.tl-more, .tl-count) {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+html:not(.platform-ios) .settings-screen .tl-more {
+  align-self: center;
+  font-size: 11px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .tl-count {
+  flex: none;
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .tl-row.is-auth .tl-count {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .tl-row:is(.is-failed, .is-held) .tl-count {
+  color: var(--error);
+}
+html:not(.platform-ios) .settings-screen .tl-action {
+  justify-self: end;
+}
+html:not(.platform-ios) .settings-screen :is(.tl-where, .tl-held, .tl-notes, .tl-fix) {
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .tl-where {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen :is(.tl-held, .tl-notes) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .tl-why {
+  color: var(--error);
+}
+html:not(.platform-ios) .settings-screen :is(.tl-next, .tl-note-flag) {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .tl-note-rest {
+  color: var(--kleio-muted);
+}
+/* Fix's steps: no box, one rule down their left. */
+html:not(.platform-ios) .settings-screen .tl-fix {
+  margin-top: 10px;
+  padding: 4px 0 4px 16px;
+  border-left: 1px solid var(--kleio-rule-strong);
+}
+html:not(.platform-ios) .settings-screen .tl-fix[hidden] {
+  display: none;
+}
+html:not(.platform-ios) .settings-screen .tl-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .tl-empty {
+  margin: 0;
+  padding: 22px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .tl-caption {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+/* Add a server: the field and Add on one row. */
+html:not(.platform-ios) .settings-screen .tl-add {
+  margin-top: 32px;
+  padding-top: 22px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .tl-add-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+html:not(.platform-ios) .settings-screen .tl-add-btn {
+  flex: none;
+  height: 38px;
+  padding: 0 20px;
+  font-size: 13px;
+}
+html:not(.platform-ios) .settings-screen .tl-note {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+
+/* ── Narrower windows ── Add an app is one column; the shelf's places draw
+   closer; a server's ticks go under its name. */
+@media (max-width: 759px) {
+  html:not(.platform-ios) .settings-screen .ap-add-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  html:not(.platform-ios) .settings-screen .ap-shelf-wrap {
+    --ap-item: 208px;
+  }
+  html:not(.platform-ios) .settings-screen :is(.tl-ruler, .tl-row) {
+    grid-template-columns: 14px minmax(0, 1fr) auto;
+  }
+  html:not(.platform-ios) .settings-screen .tl-ruler-name {
+    display: none;
+  }
+  html:not(.platform-ios) .settings-screen .tl-ruler-scale {
+    grid-column: 2 / -1;
+  }
+  html:not(.platform-ios) .settings-screen .tl-track {
+    grid-row: 2;
+    grid-column: 2 / -1;
+  }
+}
+
+/* ═══ Slice 8e: General, Steroids and About ════════════════════════════════
+   General (GeneralPage.tsx) and Steroids (SteroidsPage.tsx) are set in the
+   sans, but for the folder's field, which is in the app's mono. About
+   (AboutColophon.tsx) is the maker's page: the wordmark in Bungee, his one
+   statement in Mukta Malar, the rest in the sans. One thing moves on the
+   three pages, once, and only without reduced motion: the pen that signs
+   About's mark the first time the page is opened. */
+
+html:not(.platform-ios) .settings-screen :is(.gn-page, .sr-page) {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding-top: 18px;
+  letter-spacing: 0;
+}
+/* Each page leads with one section: its label, one line, then what it holds. */
+html:not(.platform-ios) .settings-screen :is(.gn-lead, .sr-lead) {
+  padding: 16px 0 40px;
+}
+
+/* ── Shared ── a state said in words, with its mark: done is verdigris, a next
+   step lapis, a fault red, and what isn't there muted and dashed. */
+html:not(.platform-ios) .settings-screen .settings-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  /* As wide as its words, so the ring it takes with focus fits them. */
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .settings-status > svg {
+  flex: none;
+}
+html:not(.platform-ios) .settings-screen .settings-status.is-good > svg {
+  color: var(--kleio-done);
+}
+html:not(.platform-ios) .settings-screen .settings-status.is-next > svg {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .settings-status.is-bad > svg {
+  color: var(--error);
+}
+html:not(.platform-ios) .settings-screen .settings-status:is(.is-none, .is-checking),
+html:not(.platform-ios) .settings-screen .settings-status.is-none > svg {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .settings-status.is-none .sr-state {
+  color: var(--kleio-ink);
+}
+/* A button at work (Saving…, Installing…) keeps keyboard focus and reads as
+   off; `:not(.primary)` so it outranks the outline buttons' hover and focus. */
+html:not(.platform-ios)
+  .settings-screen
+  :is(.gn-page, .sr-page)
+  .modal-btn[aria-disabled="true"]:not(.primary) {
+  border: 1px dashed var(--kleio-rule-strong);
+  background: none;
+  color: var(--kleio-muted);
+  cursor: default;
+}
+/* A link out of the app: underlined ink with a small arrow, lapis on hover. */
+html:not(.platform-ios) .settings-screen .ab-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 14px;
+  color: var(--kleio-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--kleio-muted);
+  text-underline-offset: 4px;
+}
+html:not(.platform-ios) .settings-screen .ab-link:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+  text-decoration-color: currentColor;
+}
+html:not(.platform-ios) .settings-screen .ab-link-arrow {
+  flex: none;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ab-link:is(:hover, :focus-visible) .ab-link-arrow {
+  color: currentColor;
+}
+
+/* ── General ── the folder's field keeps a measure, with Browse and Save
+   beside it; Permissions and Effects are Kleio's quiet row. */
+html:not(.platform-ios) .settings-screen .gn-lead .tl-add-row {
+  max-width: 640px;
+  margin-top: 0;
+}
+html:not(.platform-ios) .settings-screen .gn-lead .modal-btn {
+  flex: none;
+  height: 38px;
+  padding: 0 20px;
+}
+/* The quiet body stretches its children; Grant is as wide as its words. */
+html:not(.platform-ios) .settings-screen .gn-grant {
+  align-self: flex-start;
+}
+html:not(.platform-ios) .settings-screen .gn-page .kl-quiet-body .kl-quiet-note {
+  margin: 0;
+}
+
+/* ── Steroids ── the corpus's figures beside the state, quieter; the hint or
+   the error under it; Install; then that it's free, and the README. */
+html:not(.platform-ios) .settings-screen .sr-corpus {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .sr-detail {
+  max-width: 720px;
+  margin: 8px 0 0;
+}
+/* The error is the tool's own: its lines are kept, and a long path wraps. */
+html:not(.platform-ios) .settings-screen .kl-error.sr-detail {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .sr-install {
+  height: 38px;
+  margin-top: 18px;
+  padding: 0 20px;
+}
+/* The link's own padding is taken back, so its words meet the column's edge. */
+html:not(.platform-ios) .settings-screen .sr-readme {
+  margin: 8px 0 0 -4px;
+}
+
+/* ── About ── one centred 520px measure, like the last page of a book: the
+   mark and the rule it draws, the maker, the colophon, the version. */
+html:not(.platform-ios) .settings-screen .ab-page {
+  width: 520px;
+  max-width: 100%;
+  margin: 0 auto;
+  padding-top: 28px;
+  letter-spacing: 0;
+  text-align: center;
+}
+/* The signature's SVG lies over the head: the mark, 112px wide, at its top,
+   and the rule along its last pixel row, 220px down. The mark is 106px tall;
+   the wordmark starts 22px under it. */
+html:not(.platform-ios) .settings-screen .ab-head {
+  position: relative;
+  box-sizing: border-box;
+  min-height: 221px;
+  padding-top: 128px;
+}
+html:not(.platform-ios) .settings-screen .ab-sign {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  /* The view box's own height at the full measure, at any width. */
+  height: calc(520px * 752 / 1769);
+  pointer-events: none;
+}
+html:not(.platform-ios) .settings-screen .ab-pen {
+  fill: none;
+  stroke: var(--kleio-ink);
+  stroke-width: 34;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+html:not(.platform-ios) .settings-screen .ab-rule {
+  fill: var(--kleio-rule-strong);
+}
+/* The brand's wordmark as it is everywhere (kleio-theme.css), smaller. */
+html:not(.platform-ios) .settings-screen .ab-wordmark {
+  font-size: 30px;
+  line-height: 1;
+}
+html:not(.platform-ios) .settings-screen .ab-tagline {
+  margin: 14px 0 0;
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ab-maker {
+  margin-top: 40px;
+}
+html:not(.platform-ios) .settings-screen .ab-credit {
+  margin: 0;
+}
+/* Tracked caps end on a letter-space; this pad keeps the words centred. */
+html:not(.platform-ios) .settings-screen .ab-credit .st-label {
+  display: block;
+  padding-left: 0.14em;
+}
+html:not(.platform-ios) .settings-screen .ab-name {
+  display: block;
+  margin-top: 10px;
+  font-size: 34px;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .ab-role {
+  margin: 6px 0 0;
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--kleio-muted);
+}
+/* The one sentence on the page a person says: the face that carries what you
+   type and what Kleio replies, upright, with no quotation marks. */
+html:not(.platform-ios) .settings-screen .ab-statement {
+  /* Two even lines at the full measure. */
+  max-width: 500px;
+  margin: 22px auto 0;
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 17px;
+  line-height: 1.55;
+  text-wrap: balance;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ab-elsewhere {
+  margin: 18px 0 0;
+}
+html:not(.platform-ios) .settings-screen .ab-colophon {
+  margin-top: 36px;
+}
+html:not(.platform-ios) .settings-screen .ab-short-rule {
+  width: 48px;
+  height: 0;
+  margin: 0 auto 24px;
+  border: 0;
+  border-top: 1px solid var(--kleio-rule-strong);
+}
+html:not(.platform-ios) .settings-screen :is(.ab-colophon-line, .ab-version) {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  /* A line that wraps breaks evenly, not one word short. */
+  text-wrap: balance;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ab-version {
+  margin-top: 12px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+/* The signature: once, on the first open, with motion welcome. The pen masks
+   the mark only while it signs (AboutColophon.tsx); at rest the mark is
+   unmasked, so the page ends on the brand's own mark, which is also the
+   reduced-motion frame. */
+@media (prefers-reduced-motion: no-preference) {
+  html:not(.platform-ios) .settings-screen .ab-sign.is-signing .ab-pen {
+    stroke-dasharray: 1 2;
+    animation: kleio-ab-sign 2.2s var(--ease-glow) 320ms both;
+  }
+}
+/* The mark takes the first 60% (its stroke is 0.523 of the pen's length); the
+   flourish and the rule take the rest. */
+@keyframes kleio-ab-sign {
+  from {
+    stroke-dashoffset: 1;
+  }
+  60% {
+    stroke-dashoffset: 0.477;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ── Slice 8f: Overview's moments ─────────────────────────────────────────────
+   The welcome on a new device's first open, one line the first time a needed
+   step is seen done, and the finish (OverviewMoments.tsx). Desktop only. The
+   words are Kleio's, so they are in her face. Nothing glows. */
+
+/* Welcome: the mark, a greeting and one line, centred, for a moment. */
+html:not(.platform-ios) .settings-screen .ov-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 14vh;
+  text-align: center;
+}
+html:not(.platform-ios) .settings-screen .ov-welcome .kleio-mark {
+  gap: 14px;
+  margin-bottom: 24px;
+}
+html:not(.platform-ios) .settings-screen .ov-welcome .kleio-mark-img {
+  width: 56px;
+}
+html:not(.platform-ios) .settings-screen .ov-welcome .kleio-wordmark {
+  font-size: 24px;
+}
+html:not(.platform-ios) .settings-screen .ov-welcome :is(.ov-headline, .ov-sub) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* A step just done: one line under the bar, in verdigris, which is "done" here.
+   Empty, the region takes no room; once it has held a line it keeps the room. */
+html:not(.platform-ios) .settings-screen .ov-said.has-room {
+  margin-top: 12px;
+}
+html:not(.platform-ios) .settings-screen .ov-said-line {
+  margin: 0;
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 15px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+  color: var(--kleio-done);
+  overflow-wrap: anywhere;
+}
+/* A just-done segment's fill is a layer, for the visit; at rest it is 8b's colour. */
+html:not(.platform-ios) .settings-screen .ov-seg.is-fresh {
+  position: relative;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Not held once it ends: a held rise keeps the page on its own layer, and the
+     list would be drawn a shade differently from the same list at rest. */
+  html:not(.platform-ios) .settings-screen :is(.ov-welcome, .ov-page.is-arriving) {
+    animation: kleio-ov-rise 0.6s var(--ease-glow) backwards;
+  }
+  /* The line appears at once and fades as it leaves (LINE_FADE_MS). */
+  html:not(.platform-ios) .settings-screen .ov-said-line {
+    transition: opacity 0.6s var(--ease-glow);
+  }
+  html:not(.platform-ios) .settings-screen .ov-said.is-leaving .ov-said-line {
+    opacity: 0;
+  }
+  html:not(.platform-ios) .settings-screen .ov-dot.is-fresh {
+    animation: kleio-ov-dot-fill 0.9s var(--ease-glow) both;
+  }
+  /* The host's dot breathes again once its fill is over. */
+  html:not(.platform-ios) .settings-screen .ov-row[data-row="host"].is-ok .ov-dot.is-fresh {
+    animation:
+      kleio-ov-dot-fill 0.9s var(--ease-glow) both,
+      kleio-ov-breathe 5s ease-in-out 0.9s infinite;
+  }
+  html:not(.platform-ios) .settings-screen .ov-seg.is-done.is-fresh {
+    background: rgb(255 255 255 / 0.12);
+  }
+  html:not(.platform-ios) .settings-screen .ov-seg.is-done.is-fresh::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--kleio-done);
+    transform-origin: left center;
+    animation: kleio-ov-seg-fill 0.9s var(--ease-glow) both;
+  }
+}
+@keyframes kleio-ov-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* From the hollow lapis ring of a step not set up; no halo. */
+@keyframes kleio-ov-dot-fill {
+  from {
+    border-color: var(--kleio-lapis);
+    background: var(--bg);
+  }
+  to {
+    border-color: var(--kleio-done);
+    background: var(--kleio-done);
+  }
+}
+@keyframes kleio-ov-seg-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}

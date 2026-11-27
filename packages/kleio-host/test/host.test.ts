@@ -682,6 +682,8 @@ describe("host: SSE replay", () => {
     expect(firstSix.map(([id]) => id)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(firstSix[0]![1]).toMatchObject({ type: "ready" });
     expect(b.slice(0, 6)).toEqual(firstSix);
+    // Two clients subscribing at once share one upstream, so no frame is recorded twice.
+    expect(sidecar.seen.filter((r) => r.url === "/events?session=s1")).toHaveLength(1);
 
     // Client A lost the connection after id 3; more frames flow meanwhile.
     // Wait for the host to notice both closes so nothing else lands in a/b.

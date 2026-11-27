@@ -985,7 +985,8 @@ export function createHost(options: HostOptions): Host {
     const s = await liveSession(sessionId);
     if (s.upstream) return;
     const ep = await endpoint();
-    if (!ep) return;
+    // Another subscriber may have opened it while this one waited.
+    if (!ep || s.upstream) return;
     const req = httpRequest(
       {
         host: "127.0.0.1",

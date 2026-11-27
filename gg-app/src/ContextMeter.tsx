@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { theme } from "./theme";
 
 /**
@@ -16,7 +17,13 @@ export function ContextMeter({ pct }: { pct: number }): React.ReactElement {
   const clamped = Math.max(0, Math.min(100, pct));
   const color = contextColor(clamped);
   return (
-    <span className="ctx-meter-pct" title={`Context used: ${clamped}%`} style={{ color }}>
+    <span
+      className="ctx-meter-pct"
+      title={`Context used: ${clamped}%`}
+      // For the desktop session's track, which is drawn in CSS.
+      data-pressure={clamped >= 80 ? "high" : clamped >= 50 ? "warn" : "ok"}
+      style={{ color, "--ctx-pct": `${clamped}%` } as CSSProperties}
+    >
       {clamped}%
     </span>
   );

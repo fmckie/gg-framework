@@ -24,7 +24,9 @@ function LookRow<T extends string>({
   labelOf,
   render,
   onPick,
+  className,
 }: {
+  className?: string;
   label: string;
   options: readonly T[];
   value: T;
@@ -44,7 +46,7 @@ function LookRow<T extends string>({
   }
 
   return (
-    <div className="kleio-look-row">
+    <div className={className ? `kleio-look-row ${className}` : "kleio-look-row"}>
       <span className="kleio-label" id={labelId}>
         {label}
         <span className="kleio-look-current">{labelOf(value)}</span>
@@ -85,16 +87,47 @@ function LookRow<T extends string>({
   );
 }
 
-export function LookPicker({
-  look,
-  colors,
-  onChange,
-}: {
+interface LookProps {
   look: BlobLook;
   /** The colours this host accepts (older hosts: the original six). */
   colors: readonly BlobColor[];
   onChange: (look: BlobLook) => void;
-}): React.ReactElement {
+}
+
+/** The three rows of choices on their own (the Cast's form has its own stage). */
+export function LookRows({ look, colors, onChange }: LookProps): React.ReactElement {
+  return (
+    <>
+      <LookRow
+        label="Shape"
+        options={BLOB_SHAPES}
+        value={look.shape}
+        labelOf={(s) => SHAPE_LABEL[s]}
+        render={(s) => <BlobAvatar look={{ ...look, shape: s }} size={34} />}
+        onPick={(shape) => onChange({ ...look, shape })}
+      />
+      <LookRow
+        label="Face"
+        options={BLOB_FACES}
+        value={look.face}
+        labelOf={(f) => FACE_LABEL[f]}
+        render={(f) => <BlobAvatar look={{ ...look, shape: "orb", face: f }} size={34} />}
+        onPick={(face) => onChange({ ...look, face })}
+      />
+      <LookRow
+        className="is-colours"
+        label="Colour"
+        options={colors}
+        value={look.color}
+        labelOf={(c) => BLOB_COLOR_LABEL[c]}
+        render={(c) => <BlobAvatar look={{ ...look, color: c }} size={34} />}
+        onPick={(color) => onChange({ ...look, color })}
+      />
+    </>
+  );
+}
+
+export function LookPicker({ look, colors, onChange }: LookProps): React.ReactElement {
   return (
     <div className="kleio-look">
       <div className="kleio-look-stage">
@@ -109,30 +142,7 @@ export function LookPicker({
         </button>
       </div>
       <div className="kleio-look-rows">
-        <LookRow
-          label="Shape"
-          options={BLOB_SHAPES}
-          value={look.shape}
-          labelOf={(s) => SHAPE_LABEL[s]}
-          render={(s) => <BlobAvatar look={{ ...look, shape: s }} size={34} />}
-          onPick={(shape) => onChange({ ...look, shape })}
-        />
-        <LookRow
-          label="Face"
-          options={BLOB_FACES}
-          value={look.face}
-          labelOf={(f) => FACE_LABEL[f]}
-          render={(f) => <BlobAvatar look={{ ...look, shape: "orb", face: f }} size={34} />}
-          onPick={(face) => onChange({ ...look, face })}
-        />
-        <LookRow
-          label="Colour"
-          options={colors}
-          value={look.color}
-          labelOf={(c) => BLOB_COLOR_LABEL[c]}
-          render={(c) => <BlobAvatar look={{ ...look, color: c }} size={34} />}
-          onPick={(color) => onChange({ ...look, color })}
-        />
+        <LookRows look={look} colors={colors} onChange={onChange} />
       </div>
     </div>
   );

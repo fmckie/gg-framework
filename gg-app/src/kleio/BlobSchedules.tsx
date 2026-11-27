@@ -36,7 +36,7 @@ import { useKleioRemote } from "./useKleioRemote";
 
 const RUNS_SHOWN = 12;
 const RUNS_REFRESH_MS = 8_000;
-const FLASH_MS = 2500;
+export const FLASH_MS = 2500;
 
 function ErrorLine({ error }: { error: string | null }): React.ReactElement | null {
   return error ? (
@@ -46,10 +46,10 @@ function ErrorLine({ error }: { error: string | null }): React.ReactElement | nu
   ) : null;
 }
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+export const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // Monday first, like the phone.
-const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
-const INTERVALS: { minutes: number; label: string }[] = [
+export const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+export const INTERVALS: { minutes: number; label: string }[] = [
   { minutes: 15, label: "15 minutes" },
   { minutes: 30, label: "30 minutes" },
   { minutes: 60, label: "hour" },
@@ -58,7 +58,7 @@ const INTERVALS: { minutes: number; label: string }[] = [
   { minutes: 360, label: "6 hours" },
   { minutes: 720, label: "12 hours" },
 ];
-const KINDS: readonly (readonly [ScheduleKind, string])[] = [
+export const KINDS: readonly (readonly [ScheduleKind, string])[] = [
   ["daily", "Daily"],
   ["weekly", "Weekly"],
   ["interval", "Repeat"],
@@ -274,15 +274,34 @@ export function Schedules({
   );
 }
 
-function ScheduleForm({
-  schedule,
-  onSave,
-  onCancel,
-}: {
-  schedule?: Schedule;
-  onSave: (input: ScheduleInput) => Promise<void>;
-  onCancel: () => void;
-}): React.ReactElement {
+/** One schedule being written: its fields, whether they can be saved, and what to send. */
+export interface ScheduleDraft {
+  label: string;
+  setLabel: (v: string) => void;
+  prompt: string;
+  setPrompt: (v: string) => void;
+  kind: ScheduleKind;
+  setKind: (v: ScheduleKind) => void;
+  every: number;
+  setEvery: (v: number) => void;
+  time: string;
+  setTime: (v: string) => void;
+  days: number[];
+  toggleDay: (day: number) => void;
+  /** Once: "YYYY-MM-DDTHH:MM" in the viewer's zone, as a date-and-time field holds it. */
+  at: string;
+  setAt: (v: string) => void;
+  notify: boolean;
+  setNotify: (v: boolean) => void;
+  /** Named, with something to do, and a weekly one has a day. */
+  valid: boolean;
+  /** Differs from the schedule it started as. */
+  dirty: boolean;
+  input: () => ScheduleInput;
+}
+
+/** A draft of `schedule`, or of a new one: daily at 08:00, notifying. */
+export function useScheduleDraft(schedule?: Schedule): ScheduleDraft {
   const [label, setLabel] = useState(schedule?.label ?? "");
   const [prompt, setPrompt] = useState(schedule?.prompt ?? "");
   const [kind, setKind] = useState<ScheduleKind>(schedule?.kind ?? "daily");
@@ -295,6 +314,47 @@ function ScheduleForm({
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
   });
   const [notify, setNotify] = useState(schedule?.notify ?? true);
+  const timing =
+    kind === "interval"
+      ? { everyMinutes: every }
+      : kind === "daily"
+        ? { time }
+        : kind === "weekly"
+          ? { time, days: [...days].sort() }
+          : { at };
+  const now = JSON.stringify([label.trim(), prompt.trim(), kind, notify, timing]);
+  const [start] = useState(now);
+  return {
+    ...{ label, setLabel, prompt, setPrompt, kind, setKind, every, setEvery, time, setTime },
+    ...{ days, at, setAt, notify, setNotify },
+    toggleDay: (day) =>
+      setDays((cur) => (cur.includes(day) ? cur.filter((x) => x !== day) : [...cur, day])),
+    valid: Boolean(label.trim()) && Boolean(prompt.trim()) && !(kind === "weekly" && !days.length),
+    dirty: now !== start,
+    input: () =>
+      ({
+        label: label.trim(),
+        prompt: prompt.trim(),
+        kind,
+        timezone: schedule?.timezone ?? systemTimezone(),
+        notify,
+        ...(kind === "once" ? { at: new Date(at).toISOString() } : timing),
+      }) as ScheduleInput,
+  };
+}
+
+function ScheduleForm({
+  schedule,
+  onSave,
+  onCancel,
+}: {
+  schedule?: Schedule;
+  onSave: (input: ScheduleInput) => Promise<void>;
+  onCancel: () => void;
+}): React.ReactElement {
+  const draft = useScheduleDraft(schedule);
+  const { label, setLabel, prompt, setPrompt, kind, setKind, every, setEvery } = draft;
+  const { time, setTime, days, at, setAt, notify, setNotify } = draft;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputStyle = { color: theme.text, background: theme.inputBackground };
@@ -303,23 +363,8 @@ function ScheduleForm({
     e.preventDefault();
     setSaving(true);
     setError(null);
-    const timing: Partial<ScheduleInput> =
-      kind === "interval"
-        ? { everyMinutes: every }
-        : kind === "daily"
-          ? { time }
-          : kind === "weekly"
-            ? { time, days: [...days].sort() }
-            : { at: new Date(at).toISOString() };
     try {
-      await onSave({
-        label: label.trim(),
-        prompt: prompt.trim(),
-        kind,
-        timezone: schedule?.timezone ?? systemTimezone(),
-        notify,
-        ...timing,
-      } as ScheduleInput);
+      await onSave(draft.input());
     } catch (err) {
       setError(errorText(err));
       setSaving(false);
@@ -389,9 +434,7 @@ function ScheduleForm({
                 type="button"
                 className="kleio-day"
                 aria-pressed={days.includes(i)}
-                onClick={() =>
-                  setDays((cur) => (cur.includes(i) ? cur.filter((x) => x !== i) : [...cur, i]))
-                }
+                onClick={() => draft.toggleDay(i)}
               >
                 {DAY_NAMES[i]}
               </button>
@@ -434,13 +477,7 @@ function ScheduleForm({
         <button type="button" className="modal-btn" onClick={onCancel} disabled={saving}>
           Cancel
         </button>
-        <button
-          type="submit"
-          className="modal-btn primary"
-          disabled={
-            saving || !label.trim() || !prompt.trim() || (kind === "weekly" && days.length === 0)
-          }
-        >
+        <button type="submit" className="modal-btn primary" disabled={saving || !draft.valid}>
           {saving ? "Saving…" : "Save"}
         </button>
       </div>

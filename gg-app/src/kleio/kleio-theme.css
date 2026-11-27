@@ -46,6 +46,13 @@
   --wake-rain: rgba(200, 40, 58, 0.55);
   --wake-fade: rgba(12, 9, 10, 0.18);
 }
+/* Desktop: the approved empty chat's rain, one crimson, bold and larger. */
+html:not(.platform-ios) {
+  --wake-rain-lead: #ed7380;
+  --wake-rain: #ed7380;
+  --wake-rain-size: 20;
+  --wake-rain-weight: 700;
+}
 
 /* ── Solid fills: crimson with a white label, like the icon ── */
 .modal-btn.primary,
@@ -108,6 +115,38 @@
   }
 }
 
+/* The wordmark's faces: Bungee and Bungee Shade (Latin subsets from Google Fonts), under the SIL
+   Open Font License (assets/fonts/Bungee-OFL.txt). */
+@font-face {
+  font-family: "Bungee";
+  src: url("./assets/fonts/Bungee-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+/* The draft's and the replies' face (SIL OFL, licence beside the files). */
+@font-face {
+  font-family: "Mukta Malar";
+  src: url("./assets/fonts/MuktaMalar-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Mukta Malar";
+  src: url("./assets/fonts/MuktaMalar-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bungee Shade";
+  src: url("./assets/fonts/BungeeShade-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ── The Kleio mark: the icon's column-K over a wide-tracked serif name ── */
 .kleio-mark {
   display: flex;
@@ -124,21 +163,38 @@
   filter: drop-shadow(0 8px 28px rgb(0 0 0 / 0.55));
 }
 .kleio-wordmark {
-  font-family: Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
+  position: relative;
+  isolation: isolate;
+  font-family: "Bungee", Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
   font-weight: 400;
-  font-size: 60px;
+  font-size: 46px;
   line-height: 1;
   /* The trailing letter-space is cancelled so the word stays centred. */
-  letter-spacing: 0.32em;
-  margin-right: -0.32em;
-  color: #fff;
-  text-shadow: 0 2px 24px rgb(0 0 0 / 0.5);
+  letter-spacing: 0.34em;
+  margin-right: -0.34em;
+  /* Bone: 6.68:1 on a bare lit wave dot (#9c0000), the brightest thing behind it. */
+  color: #e8e0dc;
+}
+/* Bungee's shade layer under solid bone letters: the shade alone reads as blocks, not letters. */
+.kleio-wordmark::after {
+  content: "KLEIO";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  font-family: "Bungee Shade", "Bungee", serif;
+  /* Shade's letters are 0.1em wider than Bungee's, so its tracking is 0.1em tighter. */
+  letter-spacing: 0.24em;
+  white-space: nowrap;
+  color: var(--kleio-crimson);
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.75),
+    0 2px 24px rgb(0 0 0 / 0.6);
 }
 .kleio-mark.is-small .kleio-mark-img {
   width: 84px;
 }
 .kleio-mark.is-small .kleio-wordmark {
-  font-size: 42px;
+  font-size: 39px;
 }
 
 /* ── Home ── Ken's layout and entry animation (.home and friends), with a
@@ -171,43 +227,315 @@
   font-size: 14px;
   color: var(--text-secondary);
 }
-.kleio-home .home-action.btn-primary {
-  background: var(--kleio-crimson);
-  color: #fff;
-}
-.kleio-home .home-action.btn-primary:hover:not(:disabled) {
-  background: var(--kleio-crimson-hi);
-  color: #fff;
-}
-.kleio-home .home-action.btn-ghost {
-  background: rgb(255 255 255 / 0.08);
-  color: var(--text);
-}
-.kleio-home .home-action.btn-ghost:hover:not(:disabled) {
-  background: rgb(255 255 255 / 0.14);
-}
-.kleio-status {
+/* ── Cloisonné: crimson enamel, domed, in a polished rim ──
+   Home's ways in: Kleio, Code and Specialists, and Talk to Kleio as .is-small. Two layers: the
+   rim, painted under the transparent border, and ::before, the enamel inside it. Nothing moves
+   at rest. Labels: #f6f1f1 on #b31d30 is 5.99:1, on hover #c42638 5.10:1; #f7e6e8 5.56:1 and
+   4.74:1. */
+.kleio-cloisonne {
+  --dome-crown: 0.22; /* highlight at the top centre */
+  --dome-foot: 0.26; /* shade toward the bottom edge */
+  --dome-ends: 0.14; /* shade toward the two ends */
+
+  position: relative;
+  isolation: isolate; /* keeps the enamel's z-index -1 over the rim and under the label */
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  height: 44px;
+  margin: 0;
+  padding: 0 22px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  /* The rim rests at 100%; hover slides it to 0%, so the shine crosses left to right. */
+  background: linear-gradient(
+      115deg,
+      #b6afb0,
+      #7d7475 4.5%,
+      #2c2526 20.5%,
+      #d9d2d2 38.5%,
+      #fbf8f8 50%,
+      #b3aaab 61.5%,
+      #625a5b 75.5%,
+      #2c2526 91.5%,
+      #574f50
+    )
+    border-box;
+  background-size: 260% 100%;
+  background-position: 100% 0;
+  /* A 2px contact edge, as deep as the press, over a soft shadow. */
+  box-shadow:
+    0 2px 0 rgb(0 0 0 / 0.6),
+    0 9px 16px -8px rgb(0 0 0 / 0.95);
+  color: #f6f1f1;
+  font: 600 15px/1 var(--sans);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* The enamel. Layers top first: the crown's highlight, shade toward the ends, shade toward the
+   foot. */
+.kleio-cloisonne::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 8px;
+  background-color: #b31d30;
+  background-image:
+    radial-gradient(64% 30% at 50% 4%, rgb(255 240 242 / var(--dome-crown)), rgb(255 240 242 / 0)),
+    radial-gradient(60% 150% at 50% 30%, rgb(0 0 0 / 0) 55%, rgb(0 0 0 / var(--dome-ends))),
+    linear-gradient(180deg, rgb(0 0 0 / 0) 46%, rgb(0 0 0 / var(--dome-foot)));
+  background-repeat: no-repeat;
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.45),
+    inset 0 0 0 1px rgb(0 0 0 / 0.3);
+}
+.kleio-cloisonne > svg {
+  flex: none;
+}
+/* Home's buttons stay clickable when a model or folder is missing (they send people to
+   Settings), so "off" is aria-disabled, not :disabled. */
+.kleio-cloisonne:is(:hover, :focus-visible):not([aria-disabled="true"]) {
+  background-position: 0% 0;
+  color: #f6f1f1;
+}
+.kleio-cloisonne:is(:hover, :focus-visible):not([aria-disabled="true"])::before {
+  background-color: #c42638;
+}
+.kleio-cloisonne:focus {
+  outline: none;
+}
+.kleio-cloisonne:focus-visible {
+  outline: 2px solid #f6f1f1;
+  outline-offset: 3px;
+}
+/* Press: the face goes down 2px while the contact edge closes by the same 2px, so the shadow
+   holds still and nothing around it shifts. */
+.kleio-cloisonne:active:not([aria-disabled="true"]) {
+  transform: translateY(2px);
+  background-position: 40% 0;
+  box-shadow:
+    0 0 0 rgb(0 0 0 / 0.6),
+    0 7px 16px -8px rgb(0 0 0 / 0.95);
+}
+.kleio-cloisonne:active:not([aria-disabled="true"])::before {
+  background-color: #9a1728;
+}
+/* Dimmed: flat on hover, so it reads as not ready rather than interactive. */
+.kleio-cloisonne.is-dimmed,
+.kleio-cloisonne.is-dimmed:hover {
+  opacity: 0.5;
+  filter: none;
+}
+/* Desktop: the approved "off" instead: a grey label, a flat rim and dark
+   enamel. Still clickable (it sends people to Settings). */
+html:not(.platform-ios) .kleio-cloisonne.is-dimmed,
+html:not(.platform-ios) .kleio-cloisonne.is-dimmed:hover {
+  opacity: 1;
+  color: #a19798;
+  background: linear-gradient(#3b3435, #3b3435) border-box;
+}
+html:not(.platform-ios) .kleio-cloisonne.is-dimmed::before {
+  background-color: #1d1819;
+  box-shadow: none;
+}
+/* Small (Talk to Kleio): 32px tall, a 1.5px rim and 1.5px of press. */
+.kleio-cloisonne.is-small {
+  height: 32px;
+  padding: 0 15px;
+  border-width: 1.5px;
+  border-radius: 7px;
+  box-shadow:
+    0 1.5px 0 rgb(0 0 0 / 0.6),
+    0 6.5px 10px -6px rgb(0 0 0 / 0.95);
+  color: #f7e6e8;
+  font-size: 13px;
+}
+.kleio-cloisonne.is-small::before {
+  border-radius: 5.5px;
+}
+.kleio-cloisonne.is-small:active:not([aria-disabled="true"]) {
+  transform: translateY(1.5px);
+  box-shadow:
+    0 0 0 rgb(0 0 0 / 0.6),
+    0 5px 10px -6px rgb(0 0 0 / 0.95);
+}
+/* The shine sweeps slowly; a press goes down in 70ms and comes back up in 170ms. */
+@media (prefers-reduced-motion: no-preference) {
+  .kleio-cloisonne {
+    transition:
+      background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      box-shadow 170ms cubic-bezier(0.3, 0.7, 0.4, 1),
+      transform 170ms cubic-bezier(0.3, 0.7, 0.4, 1);
+  }
+  .kleio-cloisonne:active:not([aria-disabled="true"]) {
+    transition:
+      background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      box-shadow 70ms cubic-bezier(0.2, 0, 0.4, 1),
+      transform 70ms cubic-bezier(0.2, 0, 0.4, 1);
+  }
+  .kleio-cloisonne::before {
+    transition: background-color 260ms ease;
+  }
+}
+
+/* A window too short for the whole column keeps its foot on screen: the ways in stay above
+   the version label and the top clips. With room to spare, the auto margins centre it as before. */
+.home.kleio-home {
+  justify-content: flex-end;
+}
+.kleio-home > .home-version-row {
+  margin-top: auto;
+}
+.kleio-home > .home-quiet {
+  margin-bottom: auto;
+}
+/* Five equal ways in: every button takes the widest one's width. Each spans two half-columns,
+   so a short last row can sit centred. */
+.kleio-home .home-actions {
+  display: inline-grid;
+  grid-template-columns: repeat(10, 1fr);
+}
+.kleio-home .home-actions > .home-action {
+  grid-column: span 2;
+}
+/* Five at Specialists' full width need about 1011px of window: below that, three and two. */
+@media (max-width: 1015px) {
+  .kleio-home .home-actions {
+    grid-template-columns: repeat(6, 1fr);
+  }
+  .kleio-home .home-actions > .home-action:nth-child(4) {
+    grid-column: 2 / span 2;
+  }
+}
+/* Three need about 621px: below that, two, two and one. */
+@media (max-width: 625px) {
+  .kleio-home .home-actions {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .kleio-home .home-actions > .home-action:nth-child(4) {
+    grid-column: span 2;
+  }
+  .kleio-home .home-actions > .home-action:nth-child(5) {
+    grid-column: 2 / span 2;
+  }
+}
+/* Shortcuts that exist (window-shortcuts.ts); a phone has no keyboard for them. */
+.kleio-home .home-kbd {
+  margin-left: 2px;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  color: #f7e6e8;
+}
+html.platform-ios .kleio-home .home-kbd {
+  display: none;
+}
+
+/* ── Home's quiet controls: the status pill and Settings ──
+   Opaque black enamel in the same polished rim, one size down. No glass and no blur: they sit
+   on moving waves. */
+.kleio-status,
+.kleio-home .home-settings {
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  border: 1.5px solid transparent;
+  border-radius: 7px;
+  background: linear-gradient(
+      115deg,
+      #b6afb0,
+      #7d7475 4.5%,
+      #2c2526 20.5%,
+      #d9d2d2 38.5%,
+      #fbf8f8 50%,
+      #b3aaab 61.5%,
+      #625a5b 75.5%,
+      #2c2526 91.5%,
+      #574f50
+    )
+    border-box;
+  background-size: 260% 100%;
+  background-position: 100% 0;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow:
+    0 1px 0 rgb(0 0 0 / 0.7),
+    0 8px 16px -8px rgb(0 0 0 / 0.95);
+  color: #d3c9ca;
+  font: 600 12px/1 var(--sans);
+  text-shadow: none;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+:is(.kleio-status, .kleio-home .home-settings)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 5.5px;
+  background-color: #151112;
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.45),
+    inset 0 0 0 1px rgb(0 0 0 / 0.3);
+}
+:is(.kleio-status, .kleio-home .home-settings):is(:hover, :focus-visible) {
+  background-position: 0% 0;
+  color: #f6f1f1;
+}
+:is(.kleio-status, .kleio-home .home-settings):is(:hover, :focus-visible)::before {
+  background-color: #201a1b;
+}
+:is(.kleio-status, .kleio-home .home-settings):active {
+  background-position: 40% 0;
+  box-shadow:
+    0 1px 0 rgb(0 0 0 / 0.7),
+    0 4px 8px -6px rgb(0 0 0 / 0.95);
+}
+:is(.kleio-status, .kleio-home .home-settings):active::before {
+  background-color: #0d0a0b;
+}
+:is(.kleio-status, .kleio-home .home-settings):focus {
+  outline: none;
+}
+:is(.kleio-status, .kleio-home .home-settings):focus-visible {
+  outline: 2px solid #f6f1f1;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .kleio-status,
+  .kleio-home .home-settings {
+    transition:
+      background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      box-shadow 260ms ease,
+      color var(--t-fast);
+  }
+  :is(.kleio-status, .kleio-home .home-settings)::before {
+    transition: background-color 260ms ease;
+  }
+}
+.kleio-status {
   height: 28px;
   padding: 0 13px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: rgb(255 255 255 / 0.07);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
-  color: var(--text-secondary);
-  font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background var(--t-fast),
-    color var(--t-fast);
 }
-.kleio-status:hover {
-  background: rgb(255 255 255 / 0.12);
-  color: var(--text);
+.kleio-home .home-settings {
+  position: absolute; /* the shared rule's `relative` would take it out of its corner */
+  width: 36px;
+  height: 36px;
+  padding: 0;
 }
 /* A long reason ("Kleio's link isn't running on this iPhone") ends in an
    ellipsis rather than run off a narrow screen: Connection has it whole. */
@@ -227,14 +555,16 @@
 .kleio-status-dot {
   width: 7px;
   height: 7px;
+  flex: none;
   border-radius: 50%;
-  background: var(--success);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--success) 60%, transparent);
+  /* Connected: lit white (Home's palette has no green); the words carry the state too. */
+  background: #fff;
+  box-shadow: 0 0 7px rgb(255 255 255 / 0.45);
 }
 /* The Mac mini stopped answering (Tailscale dropped, or it's asleep): red, and
    the words say Disconnected, so colour isn't the only sign. */
 .kleio-status.is-down {
-  color: var(--text);
+  color: #f6f1f1;
 }
 .kleio-status.is-down .kleio-status-dot {
   background: var(--error);
@@ -263,39 +593,18 @@
 }
 
 /* ── "Brief me" (BriefPanel.tsx) ──
-   On the home screen: a quiet pill under the main buttons. The panel: a small
+   On the home screen: a small domed button under the main ones. The panel: a small
    card over any screen, bottom right (like a toast, above them), with the
    words as captions. Three bars breathe while Kleio speaks. */
-.home > .home-brief {
+.home > .home-quiet {
   position: relative;
-  animation: reveal-up 460ms var(--ease-out) 400ms both;
-}
-.home-brief {
-  display: inline-flex;
+  z-index: 1;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 15px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: rgb(255 255 255 / 0.07);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
-  color: var(--text-secondary);
-  font-family: var(--sans);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background var(--t-fast),
-    color var(--t-fast);
-}
-.home-brief:hover {
-  background: rgb(255 255 255 / 0.12);
-  color: var(--text);
-}
-.home-brief:focus-visible {
-  outline: 2px solid var(--kleio-crimson-hi);
-  outline-offset: 2px;
+  justify-content: center;
+  gap: 10px;
+  max-width: 100%;
+  animation: reveal-up 460ms var(--ease-out) 400ms both;
 }
 
 .brief-panel {
@@ -389,7 +698,7 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .home > .home-brief,
+  .home > .home-quiet,
   .brief-panel,
   .brief-orb.is-speaking > span {
     animation: none;
@@ -1192,4 +1501,3337 @@ img[data-enlarge],
    silent, the same state as a chat's headline (KleioBadge). */
 .kleio-badge.is-away .kleio-badge-dot {
   background: var(--error);
+}
+
+/* ── Session chrome ── the two top rows of a Code, Chat or Motion session, and
+   the surface behind them: flat, quiet controls on hairline rules, lapis on
+   hover and keyboard focus, no glass or blur. Scoped to the session root
+   (`app-session`, App.tsx) so Home, the pickers and Settings keep their look,
+   and to the desktop: the iPhone restyles these rows in kleio-phone.css. */
+/* The palette, on the desktop's root so a screen outside a session can read it
+   (Settings: kleio-settings.css). Nothing reads it unless a rule asks. */
+html:not(.platform-ios) {
+  --kleio-ink: #f6f1f1;
+  --kleio-text-2: #d3c9ca;
+  --kleio-muted: #a69c9d;
+  --kleio-rule: rgb(255 255 255 / 0.07);
+  --kleio-rule-strong: rgb(255 255 255 / 0.12);
+  --kleio-lapis: #94a2c4;
+  --kleio-text: #e8e0dc;
+  --kleio-done: #66b48c;
+  --kleio-surface: #1d1819;
+  --kleio-track: #3a3334;
+  --kleio-edge: #4b4143;
+  --kleio-raised: #241f20;
+  --kleio-think-off: #aeb4be;
+  --kleio-think-off-fill: #32363e;
+  --kleio-think-low: #c1c6cf;
+  --kleio-think-low-fill: #353946;
+  --kleio-think-medium: #929fff;
+  --kleio-think-medium-fill: #30385e;
+  --kleio-think-high: #f7d366;
+  --kleio-think-high-fill: #4a3b20;
+  --kleio-think-top: #ff90d3;
+  --kleio-think-top-fill: #4c2940;
+}
+html:not(.platform-ios) .app.app-session {
+  /* Helper's gold: antique, with the deep and champagne stops of its gilt, and
+     the plate behind its prompt card and sent chip. */
+  --kleio-help: #b8975a;
+  --kleio-help-deep: #ae8848;
+  --kleio-help-light: #f1e4c3;
+  --kleio-help-plate: #201a17;
+  /* Plan mode's gold: a state of the session, always flat, on the two carved
+     titles, the banner's reason and the footer's label, and on Accept.
+     Literals, so neither gold is derived from Helper's. */
+  --kleio-plan-title: #be9f67;
+  --kleio-plan: #b8975a;
+  /* The transcript and the dock share one centred 700px column. A percentage,
+     so it resolves against whichever full-width box uses it. */
+  --kleio-gutter: max(28px, calc((100% - 700px) / 2));
+  /* !important: App.tsx sets the `background` shorthand inline, which would
+     also clear the bloom. Oxblood #70161e at 50% in two corners, static. */
+  background-color: #161213 !important;
+  background-image:
+    radial-gradient(
+      620px 500px at 0 0,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    ),
+    radial-gradient(
+      620px 500px at 100% 100%,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    ) !important;
+}
+/* The bloom replaces the ambient glow, with its working and done colours. */
+html:not(.platform-ios) .app.app-session::before {
+  display: none;
+}
+
+/* The frame: one strong hairline under the chrome, a faint one between rows. */
+html:not(.platform-ios) .app.app-session .chat-head {
+  border-bottom: 1px solid var(--kleio-rule-strong);
+}
+html:not(.platform-ios) .app.app-session .chat-head-strip {
+  gap: 16px;
+}
+html:not(.platform-ios) .app.app-session .chat-head-title {
+  font-size: 12px;
+  font-weight: 400;
+}
+/* Vertical padding only shows when a narrow window wraps the row. */
+html:not(.platform-ios) .app.app-session .chat-head-nav {
+  min-height: 46px;
+  gap: 12px;
+  row-gap: 8px;
+  padding: 8px 20px;
+  border-top: 1px solid var(--kleio-rule);
+}
+
+/* Quiet controls: every button in the two rows. */
+html:not(.platform-ios) .app.app-session .chat-head :is(.btn, .nav-toggle, .kleio-badge) {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  color: var(--kleio-text-2);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+}
+html:not(.platform-ios) .app.app-session .chat-head .btn-icon {
+  padding: 0;
+}
+html:not(.platform-ios) .app.app-session .chat-head .nav-toggle {
+  min-width: 28px;
+  padding: 0;
+}
+html:not(.platform-ios) .app.app-session .chat-head .metal-button > .action-metal {
+  display: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  :is(.nav-toggle, .kleio-badge:not(.kleio-open)) {
+  color: var(--kleio-muted);
+}
+/* A commit that is ready keeps its green, as a label rather than a fill. */
+html:not(.platform-ios) .app.app-session .chat-head .btn-success {
+  color: var(--success);
+}
+/* The title's links are inline text, so they keep their size and truncation. */
+html:not(.platform-ios) .app.app-session .chat-head-cwd {
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .app.app-session :is(.chat-head-branch, .chat-head-github) {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session .chat-head-sep {
+  color: var(--kleio-rule-strong);
+}
+
+/* Hover and keyboard focus: lapis. Disabled controls stay dimmed and still. */
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  :is(.btn, .nav-toggle, .kleio-badge, .chat-head-link, .chat-head-github, .title-usage-meter):is(
+    :hover,
+    :focus-visible
+  ):not(:disabled, [aria-disabled="true"]) {
+  border-color: transparent;
+  background: none;
+  filter: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session .chat-head :is(button, select, input):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 1px;
+}
+/* The title clips its overflow, so its links draw the ring inside their own
+   box, widened a little so the ring clears the text. */
+html:not(.platform-ios) .app.app-session .chat-head-title :is(.chat-head-link, .chat-head-github) {
+  margin-inline: -4px;
+  padding-inline: 4px;
+  border-radius: 3px;
+}
+html:not(.platform-ios) .app.app-session .chat-head-title button:focus-visible {
+  outline-offset: -2px;
+}
+/* The window-layout select is invisible over its icon: the icon reacts for it. */
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  .winlayout:has(.winlayout-select:not(:disabled)):is(:hover, :focus-within)
+  .winlayout-icon-btn {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  .winlayout:has(.winlayout-select:focus-visible)
+  .winlayout-icon-btn {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 1px;
+}
+
+/* Rank: a bordered box, the level in lapis behind a divider, then the name. */
+html:not(.platform-ios) .app.app-session .chat-head .rank-badge {
+  height: 28px;
+  gap: 7px;
+  padding: 4px 8px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-text-2);
+  font-weight: 400;
+}
+html:not(.platform-ios) .app.app-session .chat-head .rank-badge:is(:hover, :focus-visible) {
+  background: none;
+  filter: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session .chat-head .rank-glyph {
+  display: none;
+}
+html:not(.platform-ios) .app.app-session .chat-head .rank-level {
+  padding-right: 7px;
+  border-right: 1px solid var(--kleio-rule-strong);
+  color: var(--kleio-lapis);
+  font-weight: 400;
+}
+html:not(.platform-ios) .app.app-session .chat-head .rank-name {
+  font-weight: 400;
+}
+
+/* Autopilot: a muted label and a small square switch. Off, the thumb sits
+   left; on, it sits right and brightens. */
+html:not(.platform-ios) .app.app-session .chat-head .autopilot-toggle {
+  height: 28px;
+}
+html:not(.platform-ios) .app.app-session .chat-head .autopilot-label {
+  font-size: 12px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session .chat-head :is(.cl-toggle-switch, .cl-switch) {
+  height: 14px;
+}
+html:not(.platform-ios) .app.app-session .chat-head .cl-switch {
+  width: 26px;
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session .chat-head .cl-switch > span::before {
+  float: none;
+  display: block;
+  box-sizing: border-box;
+  width: 26px;
+  height: 14px;
+  margin: 0;
+  border: 1px solid var(--kleio-muted);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .app.app-session .chat-head .cl-switch > span::after {
+  top: 3px;
+  right: auto;
+  left: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: var(--kleio-text-2);
+  box-shadow: none;
+  scale: none;
+  transition: transform var(--t-fast);
+}
+html:not(.platform-ios) .app.app-session .chat-head .cl-switch > input:checked + span::before {
+  border-color: var(--kleio-text-2);
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .app.app-session .chat-head .cl-switch > input:checked + span::after {
+  background: var(--kleio-ink);
+  transform: translateX(12px);
+}
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  .autopilot-toggle:has(input:not(:disabled)):is(:hover, :focus-within)
+  .autopilot-label {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  .autopilot-toggle:has(input:not(:disabled)):is(:hover, :focus-within)
+  .cl-switch
+  > span::before {
+  border-color: var(--kleio-lapis);
+}
+/* The checkbox is hidden, so keyboard focus rings its track. */
+html:not(.platform-ios) .app.app-session .chat-head .cl-switch > input:focus-visible {
+  outline: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  .cl-switch
+  > input:focus-visible
+  + span::before {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 3px;
+}
+
+/* Usage: mono 11px beside a flat 64×4px track, with no sheen. */
+html:not(.platform-ios) .app.app-session .chat-head .title-usage-meter {
+  gap: 9px;
+  min-height: 28px;
+  border-radius: 3px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session .chat-head :is(.title-usage-window, .title-usage-reset) {
+  color: inherit;
+  font-weight: 400;
+}
+/* !important: glass.css sets this track's fill that way. */
+html:not(.platform-ios) .app.app-session .chat-head .title-usage-track {
+  width: 64px;
+  height: 4px;
+  border: 0;
+  border-radius: 0;
+  background: #3a3334 !important;
+  box-shadow: none;
+}
+html:not(.platform-ios) .app.app-session .chat-head .title-usage-fill {
+  border-radius: 0;
+  background: var(--kleio-muted);
+  box-shadow: none;
+}
+html:not(.platform-ios) .app.app-session .chat-head .title-usage-fill::before,
+html:not(.platform-ios) .app.app-session .chat-head .title-usage-particles {
+  display: none;
+}
+
+/* The "2/4" window counter. */
+html:not(.platform-ios) .app.app-session .chat-head .window-index {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-muted);
+}
+
+/* ── Composer dock ── the bottom of a Code, Chat or Motion session: the
+   activity line and the text box as one flat box, square quiet buttons with a
+   crimson Send, and a small status row under it. Scoped to direct children of
+   the session root, so the composers inside overlays keep their look, and to
+   the desktop, like the session chrome above. */
+
+/* The box. Its top half is the activity line, its bottom half the composer. */
+html:not(.platform-ios) .app.app-session > .liveregion > .task-activity:last-child {
+  margin: 8px var(--kleio-gutter) 0;
+  border: 1px solid var(--kleio-rule-strong);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: #1d1819;
+  transition: border-color var(--t-fast);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap {
+  box-sizing: border-box;
+  min-height: 56px;
+  margin: 0 var(--kleio-gutter);
+  padding: 11px 9px 11px 8px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+  background: #1d1819;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* Joined: square where the halves meet, with a dark groove and a faint lip. */
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(> .task-activity:last-child)
+  + .inputwrap {
+  border-top-color: rgb(0 0 0 / 0.5);
+  border-radius: 0 0 12px 12px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
+}
+/* Focus and file-drop light the whole box, both halves. */
+html:not(.platform-ios) .app.app-session > .inputwrap:focus-within,
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(+ .inputwrap:focus-within)
+  > .task-activity:last-child {
+  border-color: rgb(255 255 255 / 0.22);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap.dragover,
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(+ .inputwrap.dragover)
+  > .task-activity:last-child {
+  border-color: var(--kleio-lapis);
+  background: color-mix(in srgb, var(--kleio-lapis) 8%, #1d1819);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap.schedule-invalid {
+  border-color: var(--error);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(> .task-activity:last-child)
+  + .inputwrap:is(:focus-within, .dragover, .schedule-invalid) {
+  border-top-color: rgb(0 0 0 / 0.5);
+}
+/* The activity line and the Stop state already show a run. */
+html:not(.platform-ios) .app.app-session > .inputwrap .working-beam {
+  display: none;
+}
+
+/* Activity line: 40px, quiet text, quiet controls. */
+html:not(.platform-ios) .app.app-session > .liveregion > .task-activity:last-child .statusrow {
+  box-sizing: border-box;
+  height: 40px;
+  padding: 0 14px;
+  border-top: 0;
+  color: var(--kleio-text-2);
+  font-size: 14px;
+}
+/* !important: the label's colour is inline. Problems keep their own colour. */
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion
+  > .task-activity:is(
+    [data-phase="idle"],
+    [data-phase="working"],
+    [data-phase="reviewing"],
+    [data-phase="done"]
+  )
+  .activity-label-reveal
+  > span {
+  --shimmer-base: var(--kleio-text-2) !important;
+  color: var(--kleio-text-2) !important;
+  font-weight: 400;
+}
+html:not(.platform-ios) .app.app-session > .liveregion .activity-meta {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .liveregion .tools-toggle {
+  width: 28px;
+  height: 28px;
+  border-radius: 3px;
+  color: var(--kleio-muted);
+}
+/* !important: Stop's colour is inline. */
+html:not(.platform-ios) .app.app-session > .liveregion .task-activity .cancel {
+  padding: 4px 6px;
+  border-radius: 3px;
+  color: var(--kleio-muted) !important;
+}
+html:not(.platform-ios) .app.app-session > .liveregion .tools-toggle:is(:hover, :focus-visible) {
+  background: #241f20;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion
+  .task-activity
+  .cancel:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--kleio-lapis) !important;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion
+  .task-activity
+  :is(.tools-toggle, .cancel):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* The draft, in Mukta Malar. The @help overlay and the Enhance animation
+   layer copy the textarea's metrics, so all three change together. */
+html:not(.platform-ios) .app.app-session > .inputwrap :is(.input, .ken-input-highlight, .enh-diss) {
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 15.5px;
+  line-height: 1.5;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap :is(.input, .ken-input-highlight) {
+  padding: 4.5px 6px;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .enh-diss {
+  padding: 0 6px;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .input:not(.input-ken),
+html:not(.platform-ios) .app.app-session > .inputwrap .ken-input-highlight {
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .input::placeholder {
+  color: color-mix(in srgb, var(--kleio-muted) 70%, transparent);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .inputrow {
+  gap: 4px;
+  padding: 0;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .inputactions-trailing {
+  gap: 4px;
+}
+
+/* Attach and mic: 32px, borderless, muted. No swell on hover or press. */
+html:not(.platform-ios) .app.app-session > .inputwrap .icon-circle {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  width: 32px;
+  height: 32px;
+  border-radius: 3px;
+  box-shadow: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  .icon-circle:not(.icon-circle-primary, .is-recording) {
+  background: transparent;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  .icon-circle:not(.icon-circle-primary, .is-recording):is(:hover, :focus-visible):not(:disabled) {
+  background: #241f20;
+  color: var(--kleio-lapis);
+}
+/* Send, and Stop while a run is going. */
+html:not(.platform-ios) .app.app-session > .inputwrap .icon-circle-primary {
+  background: #c42638;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  .icon-circle-primary:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-crimson-hi);
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  :is(.icon-circle, .enhance-pill):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* Enhance: a bounded, flat button where the pill was. */
+html:not(.platform-ios) .app.app-session > .inputwrap .enhance-pill-host {
+  top: -13px;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .enhance-pill {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  padding: 3px 9px;
+  border: 1px solid var(--kleio-muted);
+  border-radius: 3px;
+  background: #241f20;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  .enhance-pill:is(:hover, :focus-visible):not(:disabled) {
+  border-color: var(--kleio-lapis);
+  background: #241f20;
+  color: var(--kleio-lapis);
+}
+
+/* Status row: 11px, quiet. */
+html:not(.platform-ios) .app.app-session > .footer {
+  min-height: 44px;
+  padding: 10px calc(var(--rail) + 4px) 12px;
+  font-size: 11px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .footer
+  :is(
+    .thinking-toggle,
+    .model-label,
+    .model-select-text,
+    .model-button,
+    .ctx-meter-pct,
+    .bgtasks-button
+  ) {
+  font-size: 11px;
+}
+/* !important here and below: these colours and borders are inline. */
+html:not(.platform-ios) .app.app-session > .footer > .footer-left {
+  color: var(--kleio-muted) !important;
+}
+html:not(.platform-ios) .app.app-session > .footer .footer-sep {
+  color: var(--kleio-rule-strong) !important;
+}
+/* Background tasks and schedules: a square lapis border. */
+html:not(.platform-ios) .app.app-session > .footer .bgtasks-button {
+  padding: 3px 8px;
+  border-color: var(--kleio-lapis) !important;
+  border-radius: 0;
+  color: var(--kleio-text-2) !important;
+}
+html:not(.platform-ios) .app.app-session > .footer .bgtasks-button:is(:hover, :focus-visible) {
+  background: #241f20;
+  color: var(--kleio-lapis) !important;
+}
+/* Context: a 36×3px track before the percentage. Amber and red stay. */
+html:not(.platform-ios) .app.app-session > .footer .ctx-meter-pct {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-meter-pct::before {
+  content: "";
+  width: 36px;
+  height: 3px;
+  background: linear-gradient(to right, currentColor var(--ctx-pct, 0%), #3a3334 0);
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-meter-pct[data-pressure="ok"] {
+  color: var(--kleio-muted) !important;
+}
+/* Context is a button: the word, a 36×3px track and the percentage. The fill's
+   colour is inline: one hue, green at 0 to red at 100. */
+html:not(.platform-ios) .app.app-session > .footer .ctx-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-muted);
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.55;
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-button .ctx-value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-button .ctx-track {
+  display: inline-block;
+  width: 36px;
+  height: 3px;
+  background: var(--kleio-track);
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-button .ctx-track > i {
+  display: block;
+  height: 100%;
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-button:is(:hover, :focus-visible),
+html:not(.platform-ios) .app.app-session > .footer .ctx-button[aria-expanded="true"] {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-button:focus-visible,
+html:not(.platform-ios) .usage-popover .usage-close:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+/* Usage: a small panel above Context, on the body so the footer cannot clip
+   it. It moves nothing: the composer and the bottom controls stay put. */
+html:not(.platform-ios) .usage-popover {
+  position: fixed;
+  z-index: var(--z-modal);
+  box-sizing: border-box;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  padding: 14px 16px 16px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 6px;
+  background: var(--kleio-surface);
+  color: var(--kleio-text);
+  font: 12px var(--sans);
+}
+html:not(.platform-ios) .usage-popover > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+html:not(.platform-ios) .usage-popover h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+html:not(.platform-ios) .usage-popover > p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .usage-popover > small {
+  display: block;
+  margin-top: 10px;
+  color: var(--kleio-muted);
+  font-size: 11px;
+}
+html:not(.platform-ios) .usage-popover .usage-meter {
+  height: 4px;
+  background: var(--kleio-edge);
+}
+html:not(.platform-ios) .usage-popover .usage-meter > i {
+  display: block;
+  height: 100%;
+}
+html:not(.platform-ios) .usage-popover .usage-close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+html:not(.platform-ios) .usage-popover .usage-close:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+/* Thinking: text only, in the Model panel's level colours. Locked by a run it
+   keeps its dim inline colour; held by the open panel it keeps the level's. */
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  font-weight: 700 !important;
+}
+/* The effort bars: one per step up from low, each 2px taller than the last. */
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle .effort-mark {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 10px;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle .effort-mark i {
+  width: 2px;
+  background: #94a2c4;
+}
+html:not(.platform-ios) .app.app-session > .footer .effort-mark i:nth-child(1) {
+  height: 2px;
+}
+html:not(.platform-ios) .app.app-session > .footer .effort-mark i:nth-child(2) {
+  height: 4px;
+}
+html:not(.platform-ios) .app.app-session > .footer .effort-mark i:nth-child(3) {
+  height: 6px;
+}
+html:not(.platform-ios) .app.app-session > .footer .effort-mark i:nth-child(4) {
+  height: 8px;
+}
+html:not(.platform-ios) .app.app-session > .footer .effort-mark i:nth-child(5) {
+  height: 10px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .footer
+  .thinking-toggle:is(:not(:disabled), [data-preview]) {
+  color: var(--kleio-level) !important;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-preview] {
+  opacity: 1;
+  cursor: default;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="off"] {
+  --kleio-level: var(--kleio-think-off);
+  --kleio-level-fill: var(--kleio-think-off-fill);
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="low"] {
+  --kleio-level: var(--kleio-think-low);
+  --kleio-level-fill: var(--kleio-think-low-fill);
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="medium"] {
+  --kleio-level: var(--kleio-think-medium);
+  --kleio-level-fill: var(--kleio-think-medium-fill);
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="high"] {
+  --kleio-level: var(--kleio-think-high);
+  --kleio-level-fill: var(--kleio-think-high-fill);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .footer
+  .thinking-toggle:is([data-level="xhigh"], [data-level="max"], [data-level="ultra"]) {
+  --kleio-level: var(--kleio-think-top);
+  --kleio-level-fill: var(--kleio-think-top-fill);
+}
+/* xhigh and max: the flat level colour, with no pink sweep. */
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle .shimmer-text {
+  animation: none;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  font-weight: inherit;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle:hover:not(:disabled) {
+  background: none;
+  filter: none;
+}
+/* Model pickers. Helper's label (the second pair) keeps its own colour. */
+html:not(.platform-ios)
+  .app.app-session
+  > .footer
+  .model-anchor:not(.model-anchor ~ .model-anchor)
+  .model-label {
+  color: var(--kleio-text-2) !important;
+}
+html:not(.platform-ios) .app.app-session > .footer .model-anchor :is(.model-picker, .model-button) {
+  color: var(--kleio-muted) !important;
+}
+html:not(.platform-ios) .app.app-session > .footer .model-anchor {
+  gap: 6px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .footer
+  .model-picker:has(:is(.model-select, .model-button):not(:disabled)):hover
+  :is(.model-select-text, .model-button) {
+  color: var(--kleio-lapis) !important;
+  filter: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .footer
+  :is(.thinking-toggle, .bgtasks-button, .model-button):focus-visible,
+html:not(.platform-ios) .app.app-session > .footer .model-picker:has(.model-select:focus-visible) {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* ── Composer panels ── the trigger row sits inside the bottom of the composer.
+   More and Branch take the composer's body the way the Model panel does: the composer
+   stays mounted, so the draft and attachments survive, and only its row shows. */
+html:not(.platform-ios) .app.app-session > .inputwrap > .panel-entry-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 16px;
+  margin: 3px -9px -11px -8px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--kleio-edge);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap > .panel-entry-bar .panel-entry {
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--kleio-muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  > .panel-entry-bar
+  .panel-entry[aria-expanded="true"] {
+  border-bottom-color: var(--kleio-lapis);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  > .panel-entry-bar
+  .panel-entry:is(:hover, :focus-visible),
+html:not(.platform-ios)
+  .app.app-session
+  > .composer-panel
+  :is(.panel-close, .priority-action, .branch-action):is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap > .panel-entry-bar .panel-entry:focus-visible,
+html:not(.platform-ios)
+  .app.app-session
+  > .composer-panel
+  :is(.panel-close, .priority-action, .branch-action):focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .app.app-session > .composer-panel {
+  box-sizing: border-box;
+  flex: none;
+  margin: 0 var(--kleio-gutter);
+  border: 1px solid var(--kleio-rule-strong);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: var(--kleio-surface);
+  color: var(--kleio-text);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(> .task-activity:last-child)
+  + .composer-panel {
+  border-top-color: rgb(0 0 0 / 0.5);
+  border-radius: 0;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
+}
+html:not(.platform-ios) .app.app-session > .composer-panel + .inputwrap {
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+}
+html:not(.platform-ios) .app.app-session > .composer-panel + .inputwrap:focus-within {
+  border-color: var(--kleio-rule-strong);
+}
+html:not(.platform-ios) .app.app-session > .composer-panel + .inputwrap > :not(.panel-entry-bar) {
+  display: none;
+}
+html:not(.platform-ios) .app.app-session > .composer-panel + .inputwrap > .panel-entry-bar {
+  margin: 0;
+}
+html:not(.platform-ios) .app.app-session > .composer-panel > .panel-header {
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--kleio-edge);
+}
+html:not(.platform-ios) .app.app-session > .composer-panel > .panel-header h3 {
+  margin: 0;
+  color: var(--kleio-text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+html:not(.platform-ios) .app.app-session > .composer-panel .panel-esc {
+  margin-left: auto;
+  color: var(--kleio-muted);
+  font: 11px var(--mono);
+}
+html:not(.platform-ios) .app.app-session > .composer-panel .panel-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: none;
+  color: var(--kleio-muted);
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .composer-panel svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+html:not(.platform-ios) .app.app-session > .composer-panel .priority-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 12px 16px;
+}
+html:not(.platform-ios) .app.app-session > .composer-panel .priority-action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--kleio-raised);
+  color: var(--kleio-text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* Branch: the branch, its counts and the way to GitHub. No list of changes. */
+html:not(.platform-ios) .app.app-session > .inputwrap > .panel-entry-bar .branch-entry {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+html:not(.platform-ios) .app.app-session > .branch-panel > .panel-header h3 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html:not(.platform-ios) .app.app-session > .branch-panel .panel-meta {
+  flex: none;
+  color: var(--kleio-muted);
+  font-size: 12px;
+}
+html:not(.platform-ios) .app.app-session > .branch-panel .branch-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+}
+html:not(.platform-ios) .app.app-session > .branch-panel .branch-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--kleio-muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .branch-panel .view-count {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+html:not(.platform-ios) .app.app-session > .branch-panel .branch-github {
+  margin-left: auto;
+}
+
+/* ── Model panel ── opened from the Kleio model control, it takes the composer's
+   place in the dock and grows upward; the status row under it does not move.
+   The composer stays mounted under it, so the draft and attachments survive. */
+html:not(.platform-ios) .app.app-session:has(> .model-panel) > .inputwrap {
+  display: none;
+}
+html:not(.platform-ios) .app.app-session > .footer .model-trigger {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html:not(.platform-ios) .app.app-session > .footer .model-trigger[aria-expanded="true"] {
+  color: var(--kleio-lapis) !important;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle:focus-visible {
+  outline-offset: 3px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel {
+  box-sizing: border-box;
+  flex: none;
+  margin: 0 var(--kleio-gutter);
+  overflow: hidden;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+  background: var(--kleio-surface);
+  color: var(--kleio-text);
+  font-size: 12px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(> .task-activity:last-child)
+  + .model-panel {
+  border-top-color: rgb(0 0 0 / 0.5);
+  border-radius: 0 0 12px 12px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
+}
+html:not(.platform-ios) .app.app-session > .model-panel > header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .app.app-session > .model-panel > header h3 {
+  margin: 0;
+  color: var(--kleio-text-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-panel-meta {
+  flex: 1;
+  min-width: 0;
+  color: var(--kleio-muted);
+  font-size: 11px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-panel-esc {
+  padding: 1px 5px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  color: var(--kleio-muted);
+  font-size: 10px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-close {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--kleio-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-close:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  :is(.model-close, .model-review button):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  :is(.model-summary, .model-search, .model-thinking, .model-review) {
+  padding: 10px 16px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .app.app-session > .model-panel :is(.model-summary, .model-thinking) small {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-search {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-raised);
+  color: var(--kleio-text);
+  font: inherit;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-search input:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: -1px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-search output {
+  min-width: 65px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-list {
+  height: 176px;
+  padding: 0 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--kleio-muted) var(--kleio-surface);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-group h4 {
+  margin: 12px 0 6px;
+  color: var(--kleio-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-option span {
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-option small {
+  color: var(--kleio-muted);
+  font-size: 11px;
+  text-align: right;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-option[aria-pressed="true"] {
+  border-color: var(--kleio-lapis);
+  background: var(--kleio-raised);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  .model-option:not(:disabled):is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-option:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: -2px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-option:disabled {
+  color: var(--kleio-muted);
+  opacity: 0.6;
+  cursor: default;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-empty {
+  margin: 0;
+  padding: 24px 0;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-thinking {
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-levels {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice[data-level="off"] {
+  --kleio-level: var(--kleio-think-off);
+  --kleio-level-fill: var(--kleio-think-off-fill);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice[data-level="low"] {
+  --kleio-level: var(--kleio-think-low);
+  --kleio-level-fill: var(--kleio-think-low-fill);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice[data-level="medium"] {
+  --kleio-level: var(--kleio-think-medium);
+  --kleio-level-fill: var(--kleio-think-medium-fill);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice[data-level="high"] {
+  --kleio-level: var(--kleio-think-high);
+  --kleio-level-fill: var(--kleio-think-high-fill);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  .thinking-choice:is([data-level="xhigh"], [data-level="max"], [data-level="ultra"]) {
+  --kleio-level: var(--kleio-think-top);
+  --kleio-level-fill: var(--kleio-think-top-fill);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice {
+  position: relative;
+  min-width: 0;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice input {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 34px;
+  border: 2px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-raised);
+  color: var(--kleio-level);
+  font-size: 12px;
+  transition:
+    background-color 160ms ease-out,
+    border-color 160ms ease-out,
+    color 160ms ease-out;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice span::before {
+  content: "✓";
+  visibility: hidden;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  .thinking-choice
+  input:checked
+  + span::before {
+  visibility: visible;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice input:hover + span {
+  border-color: color-mix(in srgb, var(--kleio-level) 65%, var(--kleio-edge));
+  background: color-mix(in srgb, var(--kleio-level-fill) 45%, var(--kleio-raised));
+  color: color-mix(in srgb, var(--kleio-level) 92%, var(--kleio-ink));
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice input:checked + span {
+  border-color: var(--kleio-level);
+  background: var(--kleio-level-fill);
+  color: var(--kleio-level);
+  font-weight: 700;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  .thinking-choice
+  input:checked:hover
+  + span {
+  background: color-mix(in srgb, var(--kleio-level-fill) 92%, var(--kleio-surface));
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  .thinking-choice
+  input:focus-visible
+  + span {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice span {
+    transition: none;
+  }
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-review {
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 16px;
+  min-height: 82px;
+  border-top: 1px solid var(--kleio-edge);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-review-copy {
+  flex: 1;
+  min-width: 0;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-review p {
+  margin: 4px 0 0;
+  color: var(--kleio-text-2);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-review button {
+  flex: none;
+  padding: 8px 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: none;
+  color: var(--kleio-text);
+  font: inherit;
+  cursor: pointer;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  .model-review
+  button:not(:disabled):is(:hover, :focus-visible) {
+  border-color: var(--kleio-lapis);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-review button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+html:not(.platform-ios) .app.app-session > .model-panel > .placeholder-notice {
+  margin: 10px 16px;
+}
+
+/* ── Transcript column ── the conversation of a Code, Chat or Motion session,
+   in the same centred column as the dock: flat bubbles for your messages,
+   replies in Mukta Malar with lapis list markers, and a crimson lead dot
+   hanging in the margin so every line of text shares one edge. Blocks and the
+   rows between replies are in "Transcript blocks and rows" below, and Helper's
+   in "Helper's turns". */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript {
+  padding: 30px calc(var(--kleio-gutter) - var(--scrollbar)) 16px var(--kleio-gutter);
+}
+/* The empty state fills the body, as before. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript:has(> .wake-screen) {
+  padding: 4px calc(var(--rail) - var(--scrollbar)) 16px var(--rail);
+}
+/* The empty chat: a strong rain kept clear of the two lines by the mask's
+   middle, a crimson cursor, and the line under the invitation. */
+html:not(.platform-ios) .app.app-session .wake-screen {
+  flex-direction: column;
+  gap: 12px;
+}
+html:not(.platform-ios) .app.app-session .wake-rain {
+  opacity: 0.85;
+  mask-image:
+    linear-gradient(to bottom, transparent, #000 60px, #000 calc(100% - 100px), transparent),
+    radial-gradient(ellipse 70% 80% at 50% 50%, #000 35%, transparent 100%),
+    radial-gradient(ellipse 260px 80px at 50% 50%, transparent 70%, #000 100%);
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent, #000 60px, #000 calc(100% - 100px), transparent),
+    radial-gradient(ellipse 70% 80% at 50% 50%, #000 35%, transparent 100%),
+    radial-gradient(ellipse 260px 80px at 50% 50%, transparent 70%, #000 100%);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+}
+html:not(.platform-ios) .app.app-session :is(.wake-cursor, .wake-cursor-rest) {
+  color: #ed7380;
+}
+html:not(.platform-ios) .app.app-session .wake-sub {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+/* The rest of the dock follows the column; the tool panel's rule stays full width. */
+html:not(.platform-ios) .app.app-session > .liveregion :is(.livetoolpanel, .motion-starters),
+html:not(.platform-ios) .app.app-session > .liveregion .ken-statusrow {
+  padding-left: var(--kleio-gutter);
+  padding-right: var(--kleio-gutter);
+}
+
+/* Your messages: flat, with one tight corner. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .user-msg {
+  max-width: 76%;
+  /* With a reply's own 4px, 26px between turns. */
+  margin: 22px 0 22px auto;
+  padding: 9px 15px 10px;
+  border-radius: 14px 14px 4px 14px;
+  background: #241f20;
+  box-shadow: none;
+  font-size: 15.5px;
+  line-height: 1.5;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript > .user-msg:first-child {
+  margin-top: 0;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .user-msg {
+  color: var(--kleio-ink);
+}
+/* A queued bubble keeps its own border as the state signal; the "Sent to
+   Kleio" chip has its own (see "Helper's turns"). */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .user-msg:not(.queued, .user-ken-sent) {
+  border-color: var(--kleio-rule);
+}
+/* Queued to sent: ends on the bubble's resting border, not a transparent one. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .user-msg.promoted {
+  animation-name: kleio-queued-promote;
+}
+@keyframes kleio-queued-promote {
+  from {
+    opacity: 0.5;
+    border-color: var(--border, rgb(255 255 255 / 0.18));
+  }
+}
+
+/* The lead dot: out of the row, 20px left of the text edge. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .assistant-msg {
+  position: relative;
+  gap: 0;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .assistant-dot {
+  position: absolute;
+  left: -20px;
+  /* The row's 4px, then centred on the first line's x-height (0.81em of 15px). */
+  top: calc(4px + 0.81 * 15px - 4.5px);
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  /* The glyph stays in the markup; the circle is drawn, so its size is exact. */
+  font-size: 0;
+  line-height: 0;
+}
+/* !important: the dot's colour is inline. Helper's dot (gold, through `--ken`)
+   and the compaction notice's (no markdown inside) keep theirs. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-msg:not(.ken-msg):has(> .assistant-text > .markdown)
+  > .assistant-dot {
+  color: #c42638 !important;
+}
+
+/* Reply prose. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .assistant-text {
+  color: var(--kleio-text);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown {
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+/* Not prose: tables and the fold control stay in the sans face. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  :is(table, .code-expand),
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  :is(table, .code-expand) {
+  font-family: var(--sans);
+}
+/* 12px between blocks. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  > *,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown > * {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  > :first-child,
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  > :first-child {
+  margin-top: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  :is(h1, h2, h3, h4),
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  :is(h1, h2, h3, h4) {
+  font-weight: 700;
+  letter-spacing: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  h1,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown h1 {
+  font-size: 1.4em;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  h2,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown h2 {
+  font-size: 1.28em;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  h3,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown h3 {
+  font-size: 1.17em;
+  line-height: 1.55;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  :is(ul, ol),
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown :is(ul, ol) {
+  padding-left: 24px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  li,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown li {
+  margin: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  :is(li + li, li > ul, li > ol),
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  :is(li + li, li > ul, li > ol) {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  li::marker,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown li::marker {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  :not(pre)
+  > code,
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  :not(pre)
+  > code {
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.055);
+  box-shadow: none;
+  color: var(--kleio-text-2);
+  font-size: 0.85em;
+}
+
+/* ── Transcript blocks and rows ── code blocks, tables, quotes and rules, and
+   the rows between replies: flat, on the column. A row's mark sits at the text
+   edge in a 24px slot, so every row's words share a second edge; only the lead
+   dot hangs in the margin. Colours set inline as theme variables are changed
+   by re-pointing the variable on the row. */
+
+/* Code blocks. Long lines still wrap (App.css). */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .code-block
+  pre:not(.ken-prompt-body),
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  .code-block
+  pre:not(.ken-prompt-body) {
+  padding: 12px 36px 12px 14px;
+  border: 1px solid var(--kleio-rule);
+  border-radius: 8px;
+  background: var(--kleio-surface);
+  box-shadow: none;
+  color: var(--kleio-text-2);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .code-block
+  pre:not(.ken-prompt-body)
+  code,
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  .code-block
+  pre:not(.ken-prompt-body)
+  code {
+  font-family: inherit;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown .code-copy,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown .code-copy {
+  border-color: var(--kleio-rule-strong);
+  border-radius: 3px;
+  background: #241f20;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-muted);
+  font-size: 11px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .code-copy:is(:hover, :focus-visible),
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  .code-copy:is(:hover, :focus-visible) {
+  border-color: var(--kleio-lapis);
+  background: #241f20;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown .code-expand,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown .code-expand {
+  border-color: var(--kleio-rule);
+  border-radius: 3px;
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .code-expand:is(:hover, :focus-visible),
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  .code-expand:is(:hover, :focus-visible) {
+  border-color: var(--kleio-lapis);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  :is(.code-copy, .code-expand, .md-table-scroll):focus-visible,
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  :is(.code-copy, .code-expand, .md-table-scroll):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* Tables: rules only. A wide one still scrolls sideways in its own frame. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown table,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown table {
+  margin: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown :is(th, td),
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown :is(th, td) {
+  border: 0;
+  border-bottom: 1px solid var(--kleio-rule);
+  border-radius: 0;
+  padding: 7px 12px;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  :is(th, td):first-child,
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  :is(th, td):first-child {
+  padding-left: 0;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown th,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown th {
+  border-bottom-color: var(--kleio-rule-strong);
+  color: var(--kleio-text-2);
+  font-weight: 600;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  tbody
+  tr:last-child
+  > td,
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  tbody
+  tr:last-child
+  > td {
+  border-bottom: 0;
+}
+
+/* Quotes and rules. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown blockquote,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown blockquote {
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--kleio-rule-strong);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown hr,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown hr {
+  height: 0;
+  border: 0;
+  border-top: 1px solid var(--kleio-rule);
+  background: none;
+}
+
+/* Plan steps: a bare verdigris tick. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .plan-step-done {
+  gap: 0;
+  align-items: baseline;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .plan-step-check {
+  display: inline-block;
+  width: 24px;
+  height: auto;
+  border-radius: 0;
+  background: none;
+  color: var(--kleio-done);
+  font-size: 14px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .plan-step-label {
+  color: var(--kleio-text-2);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+/* Hook and compaction rows (an assistant row with no markdown): the dot comes
+   in from the margin to the slot. Hooks keep their tone colour. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-msg:not(:has(> .assistant-text > .markdown)) {
+  --success: var(--kleio-done);
+  --text-dim: var(--kleio-muted);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-msg:not(:has(> .assistant-text > .markdown))
+  > .assistant-dot {
+  left: 0;
+  /* The row's 4px, then centred on the x-height of 13.5px text. */
+  top: calc(4px + 0.81 * 13.5px - 4.5px);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-msg:not(:has(> .assistant-text > .markdown))
+  > .assistant-text {
+  padding-left: 24px;
+  font-size: 13.5px;
+}
+
+/* Subagent feed: a lapis ring and lapis lines, no connecting line. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagents {
+  --primary: var(--kleio-lapis);
+  --success: var(--kleio-done);
+  --text: var(--kleio-lapis);
+  --text-secondary: var(--kleio-lapis);
+  --text-dim: var(--kleio-muted);
+  margin: 10px 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagents-head {
+  --success: var(--kleio-lapis);
+  gap: 0;
+  align-items: center;
+  padding: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .subagents-head
+  > .tool-dot {
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  margin-right: 14px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  font-size: 0;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagents-list {
+  gap: 2px;
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagent-row {
+  gap: 0;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagent-icon {
+  flex: 0 0 24px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagent-icon.is-dot {
+  flex-basis: 9px;
+  align-self: center;
+  width: 9px;
+  height: 9px;
+  margin-right: 15px;
+  border-radius: 50%;
+  background: currentColor;
+  font-size: 0;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagent-name {
+  font-weight: 400;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  :is(.subagent-tokens, .subagent-summary) {
+  margin-left: 8px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagent-feed {
+  padding-left: 24px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagent-activity {
+  --text-dim: var(--kleio-lapis);
+  font-size: 14px;
+}
+
+/* Notices: error, security and plan-decision rows keep their words and colours. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .placeholder-notice {
+  gap: 0;
+  font-size: 14px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice
+  > .placeholder-dot {
+  margin-right: calc(24px - 0.5em);
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .line.info {
+  --text-dim: var(--kleio-muted);
+  font-size: 13.5px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .task-row {
+  font-size: 14px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .task-row-glyph {
+  --primary: var(--kleio-lapis);
+  display: inline-block;
+  width: 24px;
+}
+
+/* The question band. The chosen option keeps its crimson fill (Solid fills, above). */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ask-band:not(.is-done, .is-closed) {
+  border-color: var(--kleio-rule-strong);
+  border-radius: 8px;
+  background: var(--kleio-surface);
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .ask-options .btn {
+  border-radius: 3px;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ask-options
+  .btn:not(.btn-primary) {
+  border-color: var(--kleio-rule-strong);
+  background: #241f20;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ask-options
+  .btn:not(.btn-primary):is(:hover, :focus-visible):not(:disabled) {
+  border-color: var(--kleio-lapis);
+  background: #241f20;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ask-options
+  .btn:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* Tool rows, in the dock: verdigris when done, red when failed, a half-filled
+   ink ring while running. Verb colours stay. */
+html:not(.platform-ios) .app.app-session > .liveregion .livetoolpanel .tool-row {
+  gap: 0;
+  align-items: center;
+  font-size: 14px;
+}
+html:not(.platform-ios) .app.app-session > .liveregion .livetoolpanel .tool-dot {
+  --success: var(--kleio-done);
+  --primary: var(--kleio-ink);
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  margin-right: 15px;
+  border-radius: 50%;
+  background: currentColor;
+  font-size: 0;
+}
+html:not(.platform-ios) .app.app-session > .liveregion .livetoolpanel .tool-dot.blink {
+  width: 12px;
+  height: 12px;
+  margin-right: 12px;
+  border: 1.5px solid currentColor;
+  background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+}
+html:not(.platform-ios) .app.app-session > .liveregion .livetoolpanel .tool-line {
+  --text: var(--kleio-muted);
+  --text-dim: var(--kleio-muted);
+}
+/* A running row reads in ink, like its ring. */
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion
+  .livetoolpanel
+  .tool-row:has(> .tool-dot.blink)
+  .tool-line {
+  --text: var(--kleio-ink);
+  --text-dim: var(--kleio-ink);
+}
+
+/* Export chat: flat, lapis on hover and keyboard focus. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .export-chat {
+  border-color: var(--kleio-rule-strong);
+  border-radius: 3px;
+  background: #241f20;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .export-chat.visible:not(:disabled):is(:hover, :focus-visible) {
+  border-color: var(--kleio-lapis);
+  background: #241f20;
+  box-shadow: none;
+  color: var(--kleio-lapis);
+}
+/* !important: the icon's colour is inline. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .export-chat.visible:not(:disabled):is(:hover, :focus-visible)
+  svg {
+  color: inherit !important;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .export-chat:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .export-chat:disabled,
+html:not(.platform-ios) .app.app-session > .transcript-frame > .export-chat:disabled:hover {
+  border-color: var(--kleio-rule-strong);
+  background: #241f20;
+  box-shadow: none;
+  color: var(--kleio-muted);
+}
+
+/* ── Helper's turns ── gold, and only Helper: a gold lead dot, its name above
+   each reply, a gold-framed prompt card with a text Send, and a small gold
+   "Sent to Kleio" chip. Its words are body text. Every Helper colour is the
+   one variable `--ken` (App.css, theme.ts), re-pointed here on the session's
+   own regions, so the phone, Home, the pickers, Settings and the overlays
+   keep theirs. */
+html:not(.platform-ios)
+  .app.app-session
+  > :is(.transcript-frame, .liveregion, .inputwrap, .footer) {
+  --ken: var(--kleio-help);
+}
+/* The plan review sits outside those regions; its "reviewing" line is Helper speaking. */
+html:not(.platform-ios) .app.app-session > .plan-review {
+  --ken: var(--kleio-help);
+}
+
+/* The reply: no side rule, text on the column edge like Kleio's. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  > .assistant-text {
+  padding-left: 0;
+  border-left: 0;
+}
+/* Its name, as generated text: not selectable, and not in an exported chat. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  > .assistant-text::before {
+  content: "Helper";
+  display: block;
+  width: fit-content;
+  margin-bottom: 2px;
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 24.8px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* The name's line is 24.8px, not the prose's 23.25px: half the difference. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  > .assistant-dot {
+  top: calc(4px + 0.81 * 15px - 4.5px + 0.775px);
+}
+/* Headings, bold and links take the reply's colours (App.css). */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  .assistant-text
+  .markdown
+  :is(h1, h2, h3, h4, strong) {
+  color: var(--text);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  .assistant-text
+  .markdown
+  a {
+  color: var(--primary);
+  text-decoration-color: color-mix(in srgb, var(--primary) 40%, transparent);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  .assistant-text
+  .markdown
+  a:hover {
+  text-decoration-color: var(--primary);
+}
+
+/* A question to Helper: an ordinary bubble (see "Your messages" above) with
+   only the mention in gold. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .user-msg.user-ken
+  .helper-mention {
+  font-weight: 500;
+}
+
+/* "Sent to Kleio": a small gold plate with a tick, still. The prompt card
+   shares the plate. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  :is(.user-msg.user-ken-sent, .markdown .ken-prompt-block) {
+  border: 1px solid rgb(184 151 90 / 0.26);
+  border-radius: 6px;
+  background: var(--kleio-help-plate);
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .user-msg.user-ken-sent {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px 7px 11px;
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .user-msg.user-ken-sent::before {
+  content: "";
+  flex: none;
+  width: 13px;
+  height: 13px;
+  background: var(--kleio-help);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3.5 8.5 3 3 6-7'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3.5 8.5 3 3 6-7'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+/* The label's colour is inline (`--ken`); its looping shimmer stops. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .user-msg.user-ken-sent
+  .command-shimmer {
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  animation: none;
+}
+
+/* The prompt card. Nothing clips, so Send's focus ring shows whole. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-block {
+  margin-top: 14px;
+  padding: 12px 15px 15px;
+  overflow: visible;
+}
+/* Its label, as generated text. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-block::before {
+  content: "Prompt for Kleio";
+  display: block;
+  width: fit-content;
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  -webkit-user-select: none;
+  user-select: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-body {
+  margin-top: 7px;
+  padding: 0;
+  /* glass.css recesses every pre. */
+  box-shadow: none;
+  color: var(--kleio-text);
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 15px;
+  line-height: 1.6;
+}
+/* Send: gold letters over a thin underline, no box and no icon. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send {
+  display: flex;
+  width: fit-content;
+  height: 28px;
+  margin: 10px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background-color: transparent;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: underline 1px var(--kleio-help-deep);
+  text-underline-offset: 4px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send:hover:not(:disabled) {
+  text-decoration-color: var(--kleio-help-light);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 5px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send:not(.sent)
+  svg {
+  display: none;
+}
+/* Sent: quiet text behind a gold tick. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send.sent {
+  gap: 6px;
+  color: var(--kleio-muted);
+  text-decoration: none;
+  opacity: 1;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send.sent
+  svg {
+  color: var(--kleio-help);
+}
+
+/* The gilt: a still deep, champagne and antique gradient, clipped to the
+   letters of Helper's name, its mention, the prompt label and Send. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  > .assistant-text::before,
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .user-msg.user-ken
+  .helper-mention,
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-block::before,
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send:not(.sent) {
+  background-color: transparent;
+  background-image: linear-gradient(
+    115deg,
+    var(--kleio-help-deep) 12%,
+    var(--kleio-help-light) 42%,
+    var(--kleio-help) 72%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: var(--kleio-help);
+  -webkit-text-fill-color: transparent;
+}
+/* Forced colours: plain system text, never transparent letters. */
+@media (forced-colors: active) {
+  html:not(.platform-ios)
+    .app.app-session
+    > .transcript-frame
+    > .transcript
+    .ken-msg
+    > .assistant-text::before,
+  html:not(.platform-ios)
+    .app.app-session
+    > .transcript-frame
+    > .transcript
+    .user-msg.user-ken
+    .helper-mention,
+  html:not(.platform-ios)
+    .app.app-session
+    > .transcript-frame
+    > .transcript
+    .markdown
+    .ken-prompt-block::before,
+  html:not(.platform-ios)
+    .app.app-session
+    > .transcript-frame
+    > .transcript
+    .markdown
+    .ken-prompt-send:not(.sent) {
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+  html:not(.platform-ios)
+    .app.app-session
+    > .transcript-frame
+    > .transcript
+    .user-msg.user-ken-sent::before {
+    background: CanvasText;
+  }
+}
+
+/* ── Plan mode ── the banner a plan starts under, the review of a finished
+   plan, and the row a decision leaves behind. Plan mode's gold is a state of
+   the session, not a speaker: flat, on the two carved titles, the banner's
+   reason, Accept and the footer's label, and never Helper's gilt. The review
+   is still the full-window dialog, and every word is the app's. */
+
+/* The banner: its title between two grooves, its reason under it. */
+html:not(.platform-ios) .app.app-session .plan-logo {
+  position: relative;
+  isolation: isolate;
+  margin: 22px 0;
+  padding: 22px 0 18px;
+  border-block: 1px solid rgb(0 0 0 / 0.5);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.045),
+    0 1px 0 rgb(255 255 255 / 0.045);
+  text-align: center;
+}
+/* The block-glyph rows stay in the markup for the iPhone, and are not drawn here. */
+html:not(.platform-ios) .app.app-session .plan-logo-line {
+  display: none;
+}
+/* The title, as generated text: Bungee's solid letters over its shade layer,
+   like the wordmark's. */
+html:not(.platform-ios) .app.app-session .plan-logo::before,
+html:not(.platform-ios) .app.app-session .plan-logo::after {
+  content: "Plan mode";
+  display: block;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  -webkit-user-select: none;
+  user-select: none;
+}
+html:not(.platform-ios) .app.app-session .plan-logo::before {
+  /* The trailing letter-space is cancelled so the words stay centred. */
+  margin-right: -0.34em;
+  font-family: "Bungee", Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
+  letter-spacing: 0.34em;
+  color: var(--kleio-plan-title);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.75);
+}
+html:not(.platform-ios) .app.app-session .plan-logo::after {
+  /* Empty alternative text, so the title is read aloud once; a browser without
+     that syntax keeps the plain string above. */
+  content: "Plan mode" / "";
+  position: absolute;
+  top: 22px;
+  right: -0.34em;
+  left: 0;
+  z-index: -1;
+  font-family: "Bungee Shade", "Bungee", serif;
+  /* Shade's letters are 0.1em wider than Bungee's, so its tracking is 0.1em tighter. */
+  letter-spacing: 0.24em;
+  color: #4d3b1f;
+}
+/* Kleio's reason for planning, in plan gold: it says what the plan is for. */
+html:not(.platform-ios) .app.app-session .plan-logo-reason {
+  max-width: 520px;
+  margin: 12px auto 0;
+  color: var(--kleio-plan-title);
+  font-size: 14px;
+  font-style: normal;
+  line-height: 1.55;
+}
+
+/* The review: the session's surface and bloom over the whole window, with the
+   title, the plan and the tray in the transcript's column. */
+html:not(.platform-ios) .app.app-session > .plan-review {
+  background-color: #161213;
+  background-image:
+    radial-gradient(
+      620px 500px at 0 0,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    ),
+    radial-gradient(
+      620px 500px at 100% 100%,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    );
+  color: var(--kleio-text);
+}
+/* 40px above the title, as before: the window's own controls are up there. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-banner {
+  padding: 40px var(--kleio-gutter) 0;
+  border-bottom: 0;
+}
+html:not(.platform-ios) .app.app-session > .plan-review .plan-logo {
+  margin: 0;
+}
+html:not(.platform-ios) .app.app-session > .plan-review .plan-logo::before,
+html:not(.platform-ios) .app.app-session > .plan-review .plan-logo::after {
+  content: "Your plan";
+  font-size: 28px;
+}
+html:not(.platform-ios) .app.app-session > .plan-review .plan-logo::after {
+  content: "Your plan" / "";
+}
+/* The plan reads like a reply (see "Transcript column"). Its scrollbar stays
+   at the window's edge, the transcript's width. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body {
+  padding: 22px calc(var(--kleio-gutter) - var(--scrollbar)) 16px var(--kleio-gutter);
+  scrollbar-gutter: stable;
+  color: var(--kleio-text);
+}
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body::-webkit-scrollbar {
+  width: var(--scrollbar);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body::-webkit-scrollbar-thumb {
+  border-radius: var(--radius-sm);
+  background: var(--border);
+}
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--kleio-lapis);
+}
+/* A plan's own headings: its title, then small capitals over each section. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown h1 {
+  color: var(--kleio-ink);
+  font-size: 19px;
+  line-height: 1.35;
+}
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown h2 {
+  margin-top: 22px;
+  color: var(--kleio-text-2);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown h2 + * {
+  margin-top: 8px;
+}
+/* "…is reviewing this plan…" is Helper speaking: its gold, flat, and no band. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-ken {
+  padding: 0 var(--kleio-gutter) 10px;
+  border-top: 0;
+  background: none;
+}
+
+/* The tray: one solid box in the column, 12px above the window's foot. Closed,
+   it holds Feedback, Reject and Accept; Feedback opens the box in its place. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-actions {
+  gap: 4px;
+  min-height: 56px;
+  margin: 0 var(--kleio-gutter) 12px;
+  padding: 0 10px 0 6px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+  background: var(--kleio-surface);
+  box-shadow: inset 0 1px 0 rgb(0 0 0 / 0.4);
+}
+/* No glass and no swell: a button's size never changes. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-actions .btn {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  height: 34px;
+  border-radius: 7px;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  :is(.btn, .plan-feedback-input):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+/* Feedback: a quiet label filling the tray's left side. */
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  > .btn-ghost:not(.plan-reject) {
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+  padding: 0 10px;
+  border-color: transparent;
+  background: none;
+  color: var(--kleio-muted);
+  font-size: 15px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  > .btn-ghost:not(.plan-reject):is(:hover, :focus-visible) {
+  background: none;
+  color: var(--kleio-lapis);
+}
+/* Reject: crimson lightened until it reads as text; filled on hover only. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-actions > .plan-reject {
+  --kleio-reject: color-mix(in srgb, #c42638 70%, #f6f1f1);
+  margin-left: 0;
+  padding: 0 10px;
+  border-color: var(--kleio-reject);
+  background: transparent;
+  color: var(--kleio-reject);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  > .plan-reject:hover:not(:disabled) {
+  border-color: #c42638;
+  background: #c42638;
+  color: var(--kleio-ink);
+}
+/* Accept: plan gold, filled on hover only. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-actions > .btn-primary {
+  padding: 0 15px;
+  border-color: var(--kleio-plan);
+  background: transparent;
+  color: var(--kleio-plan);
+  font-weight: 500;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  > .btn-primary:hover:not(:disabled) {
+  background: var(--kleio-plan);
+  color: #161213;
+}
+/* The feedback box, open: the tray grows round a flat field. */
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions:has(> .plan-feedback) {
+  padding: 8px 10px 10px 6px;
+}
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-actions .plan-feedback {
+  gap: 6px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-input {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--kleio-ink);
+  font-size: 15px;
+  line-height: 1.5;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-input:focus-visible {
+  outline-offset: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-input::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+/* The hint's colour is inline, as a theme variable. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-actions .plan-feedback-hint {
+  --text-dim: var(--kleio-muted);
+  padding-left: 10px;
+}
+/* Cancel as quiet text; Send feedback bounded and flat, like Enhance. */
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-buttons
+  .btn {
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-buttons
+  .btn-ghost {
+  border-color: transparent;
+  background: none;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-buttons
+  .btn-primary {
+  border-color: var(--kleio-muted);
+  background: #241f20;
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-buttons
+  .btn:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-buttons
+  .btn-primary:is(:hover, :focus-visible):not(:disabled) {
+  border-color: var(--kleio-lapis);
+  background: #241f20;
+}
+
+/* Waiting: the activity line's words under the tray, set as that line is. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 40px;
+  margin: 0 var(--kleio-gutter);
+  padding: 0 14px;
+  color: var(--kleio-text-2);
+  font-size: 14px;
+}
+
+/* Approved: the plan folds into one row, set like a step. The tick hangs, so
+   a long title wraps under its own first letter. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .plan-done {
+  position: relative;
+  margin: 0;
+  padding-left: 24px;
+  color: var(--kleio-text);
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .plan-done-check {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--kleio-done);
+  font-size: 14px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .plan-done-state {
+  color: var(--kleio-muted);
+}
+
+/* The row a decision leaves: an accepted plan gets a verdigris tick, like a
+   finished step; feedback a lapis dot; a rejection stays muted. No amber. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice[data-decision] {
+  font-size: 15px;
+  line-height: 1.6;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice[data-decision="accepted"]
+  > .placeholder-dot {
+  width: 24px;
+  height: auto;
+  margin-right: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--kleio-done);
+  font-size: 14px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice[data-decision="accepted"]
+  > .placeholder-dot::before {
+  content: "\2713";
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice[data-decision="accepted"]
+  > .placeholder-attention {
+  color: var(--kleio-text);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice[data-decision="feedback"]
+  > .placeholder-dot {
+  background: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice[data-decision="feedback"]
+  > .placeholder-attention {
+  color: var(--kleio-text-2);
+}
+
+/* The footer's "plan mode": plan gold, flat, with no sweep. The fill is set
+   too, because the sweep paints the letters through it. */
+html:not(.platform-ios) .app.app-session > .footer .footer-plan .shimmer-text {
+  animation: none;
+  background: none;
+  color: var(--kleio-plan-title);
+  -webkit-text-fill-color: var(--kleio-plan-title);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* The buttons are Feedback, Reject, Accept in the markup, for the desktop's
+   tray. The iPhone keeps its own order: Accept first. */
+html.platform-ios .plan-review-actions > .btn-primary {
+  order: -1;
+}
+
+/* ── The Chats browser ── the desktop's session list for Chat and Motion:
+   count, search and New chat in one heading, then flat rows on hairlines.
+   The iPhone keeps the old picker's markup (ChatPicker.tsx). Nothing moves. */
+/* The browser sits in a plain `.app`, outside `.app-session`, so the session's
+   gutter never reached it: it sets the same 700px column here, for itself. */
+html:not(.platform-ios) .chat-browser {
+  --kleio-gutter: max(28px, calc((100% - 700px) / 2));
+}
+html:not(.platform-ios) .chat-browser-heading {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding: 22px var(--kleio-gutter) 20px;
+}
+html:not(.platform-ios) .chat-browser-title {
+  margin: 0;
+  color: var(--kleio-ink);
+  font: 500 20px var(--sans);
+}
+html:not(.platform-ios) .chat-browser-count {
+  margin-left: 10px;
+  color: var(--kleio-muted);
+  font: 12px var(--mono);
+}
+html:not(.platform-ios) .chat-browser-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+html:not(.platform-ios) .chat-browser-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--kleio-muted);
+  font: 12px var(--sans);
+}
+html:not(.platform-ios) .chat-browser-search > input {
+  width: 260px;
+  padding: 9px 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-surface);
+  color: var(--kleio-ink);
+  font: 13px var(--sans);
+  appearance: none;
+}
+html:not(.platform-ios) .chat-browser-search > input::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+html:not(.platform-ios) .chat-browser-new {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: 12px var(--sans);
+  cursor: pointer;
+}
+html:not(.platform-ios) .chat-browser > .picker-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--kleio-muted) var(--kleio-surface);
+  padding: 4px var(--kleio-gutter) 22px;
+}
+html:not(.platform-ios) .chat-browser-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+html:not(.platform-ios) .chat-browser-list > li + li {
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .chat-browser-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px;
+  gap: 8px 24px;
+  width: 100%;
+  padding: 16px 12px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: 15px/1.5 var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+/* Keeps the age clear of the row's delete control, as the old rows did. */
+html:not(.platform-ios) .picker-item-deletable > .chat-browser-item {
+  padding-right: 44px;
+}
+html:not(.platform-ios) .chat-browser-item[aria-current] {
+  border-color: var(--kleio-edge);
+  background: var(--kleio-surface);
+}
+html:not(.platform-ios) .chat-browser-item-title {
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .chat-browser-item-date {
+  color: var(--kleio-muted);
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+html:not(.platform-ios) .chat-browser-item-meta {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 16px;
+  color: var(--kleio-muted);
+  font-size: 12px;
+}
+html:not(.platform-ios) .chat-browser-flag {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) :is(.chat-browser-item, .chat-browser-new):disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+html:not(.platform-ios)
+  :is(.chat-browser-item, .chat-browser-new):is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  :is(.chat-browser-item, .chat-browser-new, .chat-browser-search > input):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .chat-browser > .picker-list:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: -2px;
+}
+html:not(.platform-ios) .chat-browser-none {
+  margin: 0;
+  padding: 16px 12px;
+  color: var(--kleio-muted);
+  font: 13px var(--sans);
+}
+
+/* ── The Goals browser ── the desktop's goal list (placeholder/GoalList.tsx).
+   It is the Chats browser: the heading, search, rows and gutter come from the
+   rules above, by the same class names. These add what only a goal has: its
+   objective under the name, a status, the delete confirm on its own row, and
+   the empty list. The iPhone keeps the placeholder's markup. Nothing moves. */
+html:not(.platform-ios) .goal-browser-item-name {
+  font-weight: 500;
+}
+html:not(.platform-ios) .goal-browser-item-goal {
+  grid-column: 1 / -1;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--kleio-text-2);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+html:not(.platform-ios) .goal-browser-status {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .goal-browser-status[data-status="interrupted"] {
+  color: var(--warning);
+}
+/* The confirm takes a line of its own under the row it is about. */
+html:not(.platform-ios) .goal-browser-row {
+  flex-wrap: wrap;
+}
+html:not(.platform-ios) .goal-browser-confirm {
+  flex: 0 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-surface);
+  color: var(--kleio-text-2);
+  font: 13px/1.5 var(--sans);
+}
+html:not(.platform-ios) .goal-browser-confirm > p {
+  flex: 1 1 280px;
+  margin: 0;
+}
+html:not(.platform-ios) .goal-browser-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+html:not(.platform-ios) .goal-browser .goal-browser-danger,
+html:not(.platform-ios)
+  .goal-browser
+  .goal-browser-danger:is(:hover, :focus-visible):not(:disabled) {
+  border-color: color-mix(in srgb, var(--error) 45%, var(--kleio-edge));
+  color: var(--error);
+}
+html:not(.platform-ios) .goal-browser-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 12px;
+  color: var(--kleio-muted);
+  font: 13px/1.5 var(--sans);
+}
+
+/* ── New goal ── the dialog the Goals browser opens (placeholder/GoalForm.tsx):
+   a flat panel on the browser's surface, with no glass or blur. The form is
+   one grid: a label and its aside (the name's count, Context's Add buttons)
+   share a row and everything else takes the full width. `dense` lifts the
+   count, which follows its field in the markup, back up beside the label.
+   Every rule sits under `.goal-form`: a goal's settings share these fields
+   and keep the placeholder's look.
+   !important: glass.css sets the dialog's fill and border with !important. */
+html:not(.platform-ios) .modal.goal-form-modal {
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 24px 28px 28px;
+  border-color: var(--kleio-edge) !important;
+  border-radius: 6px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .goal-form-modal > .modal-head {
+  margin-bottom: 6px;
+}
+html:not(.platform-ios) .goal-form-modal .modal-title {
+  font: 500 16px var(--sans);
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .goal-form-modal .modal-close {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .goal-form-modal .modal-close:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .goal-form-modal :is(button, input, textarea):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .goal-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-auto-flow: row dense;
+  align-items: baseline;
+  gap: 8px 16px;
+  color: var(--kleio-text);
+  font: 13px/1.5 var(--sans);
+}
+html:not(.platform-ios) .goal-form > * {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+html:not(.platform-ios) .goal-form > .goal-form-split {
+  grid-column: 1;
+}
+html:not(.platform-ios) .goal-form > .goal-form-aside {
+  grid-column: 2;
+  justify-self: end;
+  display: flex;
+  gap: 8px;
+}
+html:not(.platform-ios) .goal-form > :is(label, .goal-form-split, .goal-form-aside) {
+  margin-top: 14px;
+}
+html:not(.platform-ios) .goal-form > :is(label, .goal-form-split) {
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios) .goal-form > :is(label, .goal-form-split) > .placeholder-muted {
+  font-weight: 400;
+}
+html:not(.platform-ios) .goal-form > .placeholder-muted {
+  font-size: 12px;
+}
+html:not(.platform-ios) .goal-form > .goal-form-count {
+  font-family: var(--mono);
+}
+html:not(.platform-ios) .goal-form :is(input, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: rgb(0 0 0 / 0.18);
+  color: var(--kleio-ink);
+  font: 13px/1.5 var(--sans);
+  appearance: none;
+}
+html:not(.platform-ios) .goal-form textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+html:not(.platform-ios) .goal-form :is(input, textarea)::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+html:not(.platform-ios) .goal-form button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: 12px var(--sans);
+  cursor: pointer;
+}
+html:not(.platform-ios) .goal-form :is(button, input, textarea):disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+html:not(.platform-ios) .goal-form button:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+/* Context: the attached folders and files, one to a line, or a dashed box
+   that says what belongs there. */
+html:not(.platform-ios) .goal-form > .goal-form-context {
+  list-style: none;
+  padding: 0;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 3px;
+  font-size: 13px;
+}
+html:not(.platform-ios) .goal-form > .goal-form-context > li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+}
+html:not(.platform-ios) .goal-form > .goal-form-context > li + li {
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .goal-form .goal-form-context-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--kleio-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html:not(.platform-ios) .goal-form > .goal-form-context > li > .placeholder-muted {
+  flex: none;
+  font-size: 12px;
+}
+html:not(.platform-ios) .goal-form > .goal-form-context > li > button {
+  flex: none;
+  min-height: 28px;
+  margin-left: auto;
+}
+html:not(.platform-ios) .goal-form > .goal-form-context-empty {
+  padding: 22px 16px;
+  border: 1px dashed var(--kleio-rule-strong);
+  border-radius: 3px;
+  text-align: center;
+}
+/* The sidecar's reason: ink on the panel, the red on a leading rule. */
+html:not(.platform-ios) .goal-form > .goal-form-error {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--error) 35%, var(--kleio-edge));
+  border-radius: 3px;
+  box-shadow: inset 3px 0 0 var(--error);
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .goal-form > .goal-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+html:not(.platform-ios) .goal-form > .goal-form-actions > button {
+  min-height: 36px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+/* Create goal: the dialog's one filled button, crimson under a white label. */
+html:not(.platform-ios) .goal-form > .goal-form-actions > button[type="submit"],
+html:not(.platform-ios)
+  .goal-form
+  > .goal-form-actions
+  > button[type="submit"]:is(:hover, :focus-visible):not(:disabled) {
+  border-color: transparent;
+  background: var(--kleio-crimson);
+  color: #fff;
+  font-weight: 500;
+}
+html:not(.platform-ios)
+  .goal-form
+  > .goal-form-actions
+  > button[type="submit"]:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-crimson-hi);
+}
+
+/* ── A Chat's title ── "Chats / session title" in the window's title row, in
+   place of the folder and branch. One line: the row keeps its height. */
+html:not(.platform-ios) .app.app-session .chat-head-identity {
+  gap: 10px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session .chat-head-chats {
+  flex: none;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .app.app-session .chat-head-slash {
+  flex: none;
+}
+html:not(.platform-ios) .app.app-session .chat-head-session {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--kleio-text);
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.5;
 }

@@ -66,6 +66,7 @@ import {
   notifyAskUser,
   selectWorkspace,
   getSettings,
+  openUrl,
 } from "./agent";
 import {
   appendPendingAsks,
@@ -100,7 +101,6 @@ import { TasksModal } from "./TasksModal";
 import { NotesModal } from "./NotesModal";
 import { MemoryModal } from "./LazyMemoryModal";
 import { WakeScreen } from "./WakeScreen";
-import { MotionStarters } from "./MotionStarters";
 import { ConfirmModal } from "./ConfirmModal";
 import { InitGitModal } from "./InitGitModal";
 import { HostFoldersModal } from "./HostFoldersModal";
@@ -116,7 +116,6 @@ import { windowShortcut } from "./window-shortcuts";
 // Experimental gaze focus — disabled for now (see main.tsx).
 // import { GazeButton } from "./GazeButton";
 import { ProjectPicker } from "./ProjectPicker";
-import { ChatPicker } from "./ChatPicker";
 import { BackButton } from "./BackButton";
 import { SettingsModal } from "./LazySettingsModal";
 import {
@@ -166,7 +165,7 @@ import { takeNewBlockedSkillMessages } from "./blocked-skills";
 import { collapseSecurityRows, takeNewSecurityNotices } from "./security-notices";
 import { INTRODUCE_LABEL, INTRODUCE_PROMPT } from "./kleio/introduce";
 import { playSound } from "./sounds";
-import { countPlanSteps } from "./plan-steps";
+import { countPlanSteps, planTitle } from "./plan-steps";
 import { ArrowDownIcon, PlusIcon, QuestionIcon } from "@phosphor-icons/react";
 import type { UseDictation } from "./useDictation";
 import { toast } from "./toast";
@@ -175,6 +174,7 @@ import "./App.css";
 // Liquid glass trial layer (from veditor-app). Delete this line to revert.
 import "./glass.css";
 import { type Item, type PlanDecision, nextId, idSeq } from "./transcript-item";
+import { LaneMount } from "./olympus/LaneMount";
 import { TranscriptRow } from "./TranscriptRow";
 import { activeChatErrorId, readChatError } from "./chat-error";
 import { focusesComposerOnOpen } from "./composer-refocus";
@@ -184,6 +184,9 @@ import {
   type ChecklistNotice,
 } from "./placeholder/ChecklistView";
 import { AppFooter } from "./AppFooter";
+import { ModelPanel, applyThinkingLevel } from "./ModelPanel";
+import { MorePanel, PanelEntryBar } from "./MorePanel";
+import { BranchPanel } from "./BranchPanel";
 import { Composer } from "./Composer";
 import { WorkspaceHeaderActions } from "./WorkspaceHeaderActions";
 import { useAttachments } from "./useAttachments";
@@ -211,6 +214,11 @@ const GoalPanel = lazy(() =>
 );
 const WorkerList = lazy(() =>
   import("./placeholder/WorkerList").then((m) => ({ default: m.WorkerList })),
+);
+// So does Motion: its screen (the Chats browser, in Motion's mode) and its starters.
+const ChatPicker = lazy(() => import("./ChatPicker").then((m) => ({ default: m.ChatPicker })));
+const MotionStarters = lazy(() =>
+  import("./MotionStarters").then((m) => ({ default: m.MotionStarters })),
 );
 
 const DEFAULT_INPUT_PLACEHOLDER = `Type a message, / commands, @ files, ${HELPER_MENTION} for help`;
@@ -429,6 +437,15 @@ function App(): React.ReactElement {
   const [thinkingStartTs, setThinkingStartTs] = useState<number | null>(null);
   const [thinkingAccumMs, setThinkingAccumMs] = useState(0);
   const [models, setModels] = useState<ModelOption[]>([]);
+  // The desktop's Model panel, which takes the composer's place while open.
+  const [modelPanelOpen, setModelPanelOpen] = useState(false);
+  const [thinkingPreview, setThinkingPreview] = useState<string | null | undefined>(undefined);
+  const modelTriggerRef = useRef<HTMLButtonElement>(null);
+  // The More panel, opened from the row inside the bottom of the composer.
+  const [morePanelOpen, setMorePanelOpen] = useState(false);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
+  const [branchPanelOpen, setBranchPanelOpen] = useState(false);
+  const branchTriggerRef = useRef<HTMLButtonElement>(null);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [slashIndex, setSlashIndex] = useState(0);
   // Caret offset in the composer, tracked so the `/schedule` hint can highlight
@@ -1632,7 +1649,7 @@ function App(): React.ReactElement {
   // Clamp so a shrinking match list never points past the end.
   const clampedSlashIndex = slashMatches.length > 0 ? slashIndex % slashMatches.length : 0;
 
-  // The helper trigger (`@helper`, or the old `@muse` and `@ken`) addresses the mentor agent,
+  // The helper trigger (`@help`, or the old `@helper`, `@muse` and `@ken`) addresses the mentor agent,
   // not a file. When the input leads with it (case-insensitive, word-boundary so
   // `@helperum.ts` still picks files), the file picker is suppressed and the token
   // shimmers in Ken's color, so it's obvious where the message goes.
@@ -1779,7 +1796,7 @@ function App(): React.ReactElement {
   }
 
   // Debounced file search whenever the active mention query changes. Skipped
-  // while the helper token leads the draft, so typing `@helper` never spawns a
+  // while the helper token leads the draft, so typing `@help` never spawns a
   // file lookup or picker.
   useEffect(() => {
     if (mention === null || kenActive) {
@@ -2173,16 +2190,13 @@ function App(): React.ReactElement {
       return;
     }
 
-    // `@helper <question>` (or the old `@muse` or `@ken`; any case, optional colon) goes to Ken Kai, the
+    // `@help <question>` (or the old `@helper`, `@muse` or `@ken`; any case, optional colon) goes to Ken Kai, the
     // read-only mentor agent — NOT GG Coder. Ken runs concurrently with any
     // build run; his reply streams into his own bubble via ken_* events. Enter
     // and the round button both land here.
     if (helperAsk !== null) {
       if (attachments.length > 0) {
-        toast(
-          "Helper cannot receive attachments. Remove @Helper to send them to Kleio.",
-          "warning",
-        );
+        toast("Helper cannot receive attachments. Remove @help to send them to Kleio.", "warning");
         return;
       }
       if (!helperAsk) return;
@@ -2297,9 +2311,14 @@ function App(): React.ReactElement {
   // plan is the user's, and a prompt landing during a run queues server-side.
   // (This used to bail silently on a stale `running` value, closing the box
   // and leaving the plan in limbo.)
-  function runPlanPrompt(prompt: string, decision: PlanDecision, meta?: PromptMeta): void {
+  function runPlanPrompt(
+    prompt: string,
+    decision: PlanDecision,
+    meta?: PromptMeta,
+    title?: string,
+  ): void {
     setPlanReview(null);
-    pushItem({ kind: "plan_decision", id: nextId(), decision });
+    pushItem({ kind: "plan_decision", id: nextId(), decision, title });
     endStreamingText();
     void sendPrompt(prompt, [], meta).catch((error: unknown) => {
       reportPlanDecisionFailure("Your plan decision wasn't sent", error);
@@ -2347,6 +2366,9 @@ function App(): React.ReactElement {
     runPlanPrompt(
       "The plan has been approved. Implement it now, following each step in order.",
       "accepted",
+      undefined,
+      // The iPhone keeps its sentence; the desktop names the plan it approved.
+      isPhone() ? undefined : ((reviewed && planTitle(reviewed)) ?? "Plan"),
     );
   }
 
@@ -2645,6 +2667,12 @@ function App(): React.ReactElement {
                 setEntryView("projects");
               })
             }
+            onMotion={() =>
+              withViewTransition(() => {
+                setWorkspaceMode("motion");
+                setEntryView("motion");
+              })
+            }
             onGoals={() =>
               withViewTransition(() => {
                 setWorkspaceMode("code");
@@ -2685,16 +2713,20 @@ function App(): React.ReactElement {
             />
           </Suspense>
         ) : entryView === "chats" ? (
-          <ChatPicker
-            onChosen={onProjectChosen}
-            onClose={() => withViewTransition(() => setEntryView("home"))}
-          />
+          <Suspense fallback={null}>
+            <ChatPicker
+              onChosen={onProjectChosen}
+              onClose={() => withViewTransition(() => setEntryView("home"))}
+            />
+          </Suspense>
         ) : entryView === "motion" ? (
-          <ChatPicker
-            mode="motion"
-            onChosen={onProjectChosen}
-            onClose={() => withViewTransition(() => setEntryView("home"))}
-          />
+          <Suspense fallback={null}>
+            <ChatPicker
+              mode="motion"
+              onChosen={onProjectChosen}
+              onClose={() => withViewTransition(() => setEntryView("home"))}
+            />
+          </Suspense>
         ) : (
           <ProjectPicker
             onChosen={onProjectChosen}
@@ -2742,9 +2774,13 @@ function App(): React.ReactElement {
     return (
       <div className="app" style={{ background: theme.background }}>
         {workspaceMode === "chat" ? (
-          <ChatPicker initialAgent={state?.chatAgent ?? "general"} {...pickerProps} />
+          <Suspense fallback={null}>
+            <ChatPicker initialAgent={state?.chatAgent ?? "general"} markCurrent {...pickerProps} />
+          </Suspense>
         ) : workspaceMode === "motion" ? (
-          <ChatPicker mode="motion" {...pickerProps} />
+          <Suspense fallback={null}>
+            <ChatPicker mode="motion" markCurrent {...pickerProps} />
+          </Suspense>
         ) : state?.goal ? (
           <Suspense fallback={null}>
             <GoalList {...pickerProps} />
@@ -2765,6 +2801,54 @@ function App(): React.ReactElement {
   // New on top, the session's tools under them (WorkspaceHeader). The desktop
   // keeps back and New in its tools row.
   const phoneHeader = isPhone();
+  // A chat is titled by the first message typed into it. One sent as a chip
+  // ("Introduce yourself") is passed over: its prompt is never shown.
+  const firstUserItem = items.find(
+    (item): item is Extract<Item, { kind: "user" }> => item.kind === "user" && !item.label,
+  );
+  // A run locks the model, so it also puts the panel away.
+  if (running && modelPanelOpen) {
+    setModelPanelOpen(false);
+    setThinkingPreview(undefined);
+  }
+  const closeModelPanel = (): void => {
+    setModelPanelOpen(false);
+    setThinkingPreview(undefined);
+    modelTriggerRef.current?.focus({ preventScroll: true });
+  };
+  // More holds only what this session has: today the Code checklist.
+  const showMoreRow = !phoneHeader && workspaceMode === "code";
+  // The checklist takes the whole session, so More does not wait under it.
+  if (showChecklist && morePanelOpen) setMorePanelOpen(false);
+  const closeMorePanel = (): void => {
+    setMorePanelOpen(false);
+    moreTriggerRef.current?.focus({ preventScroll: true });
+  };
+  const toggleMorePanel = (): void => {
+    if (morePanelOpen) return closeMorePanel();
+    // One panel at a time: More takes the Model panel's place.
+    setModelPanelOpen(false);
+    setThinkingPreview(undefined);
+    setBranchPanelOpen(false);
+    setMorePanelOpen(true);
+  };
+  // Branch holds only what the session's state carries, and all of it hangs
+  // off the branch and its GitHub repository: without both there is no trigger.
+  const branchName = state?.gitBranch || null;
+  const branchRepoUrl = state?.gitHubRepoUrl || null;
+  const showBranchEntry = showMoreRow && branchName !== null && branchRepoUrl !== null;
+  if (branchPanelOpen && (showChecklist || !showBranchEntry)) setBranchPanelOpen(false);
+  const closeBranchPanel = (): void => {
+    setBranchPanelOpen(false);
+    branchTriggerRef.current?.focus({ preventScroll: true });
+  };
+  const toggleBranchPanel = (): void => {
+    if (branchPanelOpen) return closeBranchPanel();
+    setModelPanelOpen(false);
+    setThinkingPreview(undefined);
+    setMorePanelOpen(false);
+    setBranchPanelOpen(true);
+  };
   const activeRemote = kleioRemote.status?.active ?? null;
   // The subscription usage bar. The iPhone's title row has no room for it, so
   // there it sits at the right end of the activity row, by the tools chevron.
@@ -2855,7 +2939,7 @@ function App(): React.ReactElement {
 
   return (
     <div
-      className={`app${isFileDragOver ? " app-file-dragover" : ""}${windowFocused ? " window-focused" : ""}`}
+      className={`app app-session${isFileDragOver ? " app-file-dragover" : ""}${windowFocused ? " window-focused" : ""}`}
       data-glow={glowState}
       style={{ background: theme.background, ...glowStyle }}
       onDragEnter={handleWindowDragEnter}
@@ -2867,6 +2951,12 @@ function App(): React.ReactElement {
 
       <WorkspaceHeader
         workspaceMode={workspaceMode}
+        onOpenChats={
+          workspaceMode === "chat" && !phoneHeader
+            ? () => withViewTransition(() => setShowPicker(true))
+            : undefined
+        }
+        sessionTitle={firstUserItem?.text}
         cwd={state?.cwd}
         gitBranch={state?.gitBranch}
         gitDirtyFileCount={state?.gitDirtyFileCount}
@@ -3171,7 +3261,9 @@ function App(): React.ReactElement {
           {/* Motion's starting points sit just above the activity bar and go away
             once the conversation has its first message. */}
           {workspaceMode === "motion" && hydrated && items.length === 0 && !running && (
-            <MotionStarters onPick={fillComposer} />
+            <Suspense fallback={null}>
+              <MotionStarters onPick={fillComposer} />
+            </Suspense>
           )}
           {workspaceMode === "code" && kenRunning && (
             <KenActivityBar
@@ -3185,6 +3277,8 @@ function App(): React.ReactElement {
             />
           )}
           {!toolsHidden && <LiveToolPanel entries={liveToolFeed} />}
+          {/* Olympus: the subagents at work as gods, on the desktop. */}
+          <LaneMount items={items} />
           {/* Automatic review stays in the same task row; manual @Ken keeps its own bar. */}
           {showTaskBar && (
             <ActivityBar
@@ -3194,6 +3288,9 @@ function App(): React.ReactElement {
               cancelling={cancelling}
               tokens={tokens}
               doneStatus={doneStatus}
+              idleLine={
+                !phoneHeader && items.length > 0 ? "Ready for your next message" : undefined
+              }
               isThinking={isThinking}
               thinkingStartTs={thinkingStartTs}
               thinkingAccumMs={thinkingAccumMs}
@@ -3207,6 +3304,46 @@ function App(): React.ReactElement {
             />
           )}
         </div>
+
+        {modelPanelOpen && !phoneHeader && !running && (
+          <ModelPanel
+            id="model-panel"
+            models={models}
+            currentModel={state?.model ?? ""}
+            thinkingLevel={state?.thinkingLevel ?? null}
+            thinkingLevels={state?.supportedThinkingLevels ?? []}
+            onUseModel={onSelectModel}
+            onApplyThinking={(level) => {
+              void applyThinkingLevel(level, state?.thinkingLevel ?? null).then((reached) => {
+                if (!reached) toast("That thinking level could not be set for this model", "error");
+              });
+            }}
+            onPreviewThinking={setThinkingPreview}
+            onClose={closeModelPanel}
+          />
+        )}
+        {morePanelOpen && showMoreRow && (
+          <MorePanel
+            id="more-panel"
+            onChecklist={() => {
+              setMorePanelOpen(false);
+              openChecklist();
+            }}
+            onClose={closeMorePanel}
+          />
+        )}
+        {branchPanelOpen && showMoreRow && branchName && branchRepoUrl && (
+          <BranchPanel
+            id="branch-panel"
+            branch={branchName}
+            uncommitted={state?.gitDirtyFileCount ?? 0}
+            pullRequests={state?.gitHubPRs ?? null}
+            issues={state?.gitHubIssues ?? null}
+            repoUrl={branchRepoUrl}
+            onOpen={(url) => void openUrl(url)}
+            onClose={closeBranchPanel}
+          />
+        )}
 
         <Composer
           isFileDragOver={isFileDragOver}
@@ -3279,6 +3416,21 @@ function App(): React.ReactElement {
           runEnhance={runEnhance}
           onDictated={onDictated}
           setDictation={setDictation}
+          panelEntries={
+            showMoreRow && (
+              <PanelEntryBar
+                moreOpen={morePanelOpen}
+                morePanelId="more-panel"
+                onToggleMore={toggleMorePanel}
+                moreRef={moreTriggerRef}
+                branchName={showBranchEntry ? branchName : null}
+                branchOpen={branchPanelOpen}
+                branchPanelId="branch-panel"
+                onToggleBranch={toggleBranchPanel}
+                branchRef={branchTriggerRef}
+              />
+            )
+          }
         />
 
         <AppFooter
@@ -3297,6 +3449,18 @@ function App(): React.ReactElement {
           onSelectKenModel={onSelectKenModel}
           kenRunning={kenRunning}
           autopilotReviewing={autopilotReviewing}
+          modelPanel={{
+            open: modelPanelOpen,
+            panelId: "model-panel",
+            onToggle: () => {
+              if (modelPanelOpen) return closeModelPanel();
+              setMorePanelOpen(false);
+              setBranchPanelOpen(false);
+              setModelPanelOpen(true);
+            },
+            triggerRef: modelTriggerRef,
+            previewLevel: thinkingPreview,
+          }}
         />
       </Activity>
 

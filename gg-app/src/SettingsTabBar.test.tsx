@@ -17,19 +17,32 @@ const TABS: SettingsTab<Id>[] = [
   { id: "steroids", label: "Steroids", icon: SyringeIcon, alert: true },
 ];
 
-function Harness({ onSelect }: { onSelect?: (id: Id) => void }): React.ReactElement {
+function Harness({
+  onSelect,
+  tooltips,
+  tabs = TABS,
+}: {
+  onSelect?: (id: Id) => void;
+  tooltips?: boolean;
+  tabs?: SettingsTab<Id>[];
+}): React.ReactElement {
   const [selected, setSelected] = useState<Id>("general");
   return (
     <SettingsTabBar
-      tabs={TABS}
+      tabs={tabs}
       selected={selected}
       onSelect={(id) => {
         onSelect?.(id);
         setSelected(id);
       }}
       panelId="panel"
+      {...(tooltips === undefined ? {} : { tooltips })}
     />
   );
+}
+
+function titles(): (string | null)[] {
+  return screen.getAllByRole("tab").map((t) => t.getAttribute("title"));
 }
 
 function selectedName(): string | null {
@@ -115,6 +128,61 @@ describe("SettingsTabBar", () => {
 
     const stops = screen.getAllByRole("tab").filter((t) => t.tabIndex === 0);
     expect(stops.map((t) => t.getAttribute("aria-label"))).toEqual(["General"]);
+  });
+
+  it("gives no tab a title unless asked", () => {
+    render(<Harness />);
+
+    expect(titles()).toEqual([null, null, null]);
+    fireEvent.click(screen.getByRole("tab", { name: "AI Providers" }));
+    expect(titles()).toEqual([null, null, null]);
+  });
+
+  it("names each unselected tab in its title when asked, and never the selected one", () => {
+    render(<Harness tooltips />);
+
+    expect(titles()).toEqual([null, "AI Providers", "Steroids"]);
+
+    fireEvent.click(screen.getByRole("tab", { name: "AI Providers" }));
+    expect(titles()).toEqual(["General", null, "Steroids"]);
+    // The accessible name is the label either way.
+    expect(screen.getAllByRole("tab").map((t) => t.getAttribute("aria-label"))).toEqual([
+      "General",
+      "AI Providers",
+      "Steroids",
+    ]);
+  });
+
+  it("passes by a tab that isn't available yet, and says why", () => {
+    const onSelect = vi.fn();
+    const tabs = TABS.map((t) =>
+      t.id === "providers" ? { ...t, disabled: "Add a key first" } : t,
+    );
+    render(<Harness tabs={tabs} onSelect={onSelect} tooltips />);
+    const providers = screen.getByRole("tab", { name: "AI Providers" });
+    expect(providers.getAttribute("aria-disabled")).toBe("true");
+    // Its reason is its tooltip, in place of its name.
+    expect(titles()).toEqual([null, "Add a key first", "Steroids"]);
+    expect(screen.getAllByRole("tab").filter((t) => t.hasAttribute("aria-disabled"))).toHaveLength(
+      1,
+    );
+
+    fireEvent.click(providers);
+    expect(selectedName()).toBe("General");
+    expect(onSelect).not.toHaveBeenCalled();
+
+    // The arrow keys step over it, both ways and at the ends.
+    fireEvent.keyDown(screen.getByRole("tab", { name: "General" }), { key: "ArrowRight" });
+    expect(selectedName()).toBe("Steroids");
+    fireEvent.keyDown(document.activeElement as Element, { key: "ArrowLeft" });
+    expect(selectedName()).toBe("General");
+    fireEvent.keyDown(document.activeElement as Element, { key: "ArrowLeft" });
+    expect(selectedName()).toBe("Steroids");
+    fireEvent.keyDown(document.activeElement as Element, { key: "Home" });
+    expect(selectedName()).toBe("General");
+    fireEvent.keyDown(document.activeElement as Element, { key: "End" });
+    expect(selectedName()).toBe("Steroids");
+    expect(onSelect.mock.calls.map((c) => c[0])).not.toContain("providers");
   });
 
   it("marks a tab that needs attention", () => {

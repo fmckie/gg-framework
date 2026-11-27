@@ -1,7 +1,9 @@
-// Specialists (Blobs in the code): Kleio's helpers, each with one job. A list
-// laid out like Chats and Code; a specialist opens into its chat with a sidebar of cards on the left (job,
+// Specialists (Blobs in the code): Kleio's helpers, each with one job. On the
+// desktop the list is a cast on a shelf (CastList.tsx); on the iPhone, rows
+// laid out like Chats and Code. A specialist opens into its chat with a sidebar of cards on the left (job,
 // schedules, recent activity) that collapses from the header. New and edit are
-// full-page forms. Every change goes to the Mac mini, so the phone sees it too.
+// full-page forms: the Cast's on the desktop (CastForm.tsx), today's on the
+// iPhone. Every change goes to the Mac mini, so the phone sees it too.
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react";
@@ -9,6 +11,7 @@ import { Badge } from "../Badge";
 import { ConfirmModal } from "../ConfirmModal";
 import { MetalButton } from "../MetalButton";
 import { ListSkeleton } from "../Skeleton";
+import { isPhone } from "../platform";
 import { theme } from "../theme";
 import { useWindowFocused } from "../useWindowFocused";
 import { AgentRowContent, agentRowState } from "./AgentRow";
@@ -16,6 +19,9 @@ import { AgentAvatar, BlobAvatar } from "./BlobAvatar";
 import { BlobForm } from "./BlobForm";
 import { Schedules } from "./BlobSchedules";
 import { describeAutoSchedules } from "./blobFormat";
+import { CastForm } from "./CastForm";
+import { CastList } from "./CastList";
+import { shortHost } from "./host-name";
 import {
   AppsButton,
   KleioHead,
@@ -39,18 +45,20 @@ import {
   type BlobSaved,
 } from "./kleioApi";
 import { ThreadChat } from "./ThreadChat";
+import { useKleioRemote } from "./useKleioRemote";
 
 const REFRESH_MS = 10_000;
 
 type View =
   | { kind: "list" }
-  | { kind: "create" }
+  | { kind: "create"; job?: string }
   | { kind: "edit"; id: string }
   | { kind: "detail"; id: string; note?: string };
 
 export function BlobsPage({
   onClose,
   onListChange,
+  onCountChange,
   onOpenApps,
   openId,
 }: {
@@ -58,6 +66,8 @@ export function BlobsPage({
   onClose: () => void;
   /** Told whether the list is showing, so the screen can show its switcher. */
   onListChange?: (atList: boolean) => void;
+  /** Told how many specialists there are (null until read): none yet means no groups yet. */
+  onCountChange?: (count: number | null) => void;
   /** Open the Apps page (a "Connect apps" button on the list). */
   onOpenApps?: () => void;
   /** Open straight into this agent's chat (a tapped notification). */
@@ -88,6 +98,11 @@ export function BlobsPage({
     onListChange?.(view.kind === "list");
   }, [view.kind, onListChange]);
 
+  const count = blobs?.length ?? null;
+  useEffect(() => {
+    onCountChange?.(count);
+  }, [count, onCountChange]);
+
   function saved(r: BlobSaved): void {
     void load();
     const note = describeAutoSchedules(r.autoSchedules);
@@ -99,14 +114,16 @@ export function BlobsPage({
 
   if (view.kind === "create" || view.kind === "edit") {
     const blob = view.kind === "edit" ? byId(view.id) : undefined;
-    return (
-      <BlobForm
-        {...(blob ? { blob } : {})}
-        others={(blobs ?? []).filter((b) => b.id !== blob?.id)}
-        onSaved={saved}
-        onCancel={() => setView(blob ? { kind: "detail", id: blob.id } : { kind: "list" })}
-      />
-    );
+    const form = {
+      ...(blob ? { blob } : {}),
+      others: (blobs ?? []).filter((b) => b.id !== blob?.id),
+      onSaved: saved,
+      onCancel: () => setView(blob ? { kind: "detail", id: blob.id } : { kind: "list" }),
+    };
+    // The iPhone keeps today's form; schedules stay in its chat's sidebar.
+    if (isPhone()) return <BlobForm {...form} />;
+    const startJob = view.kind === "create" ? view.job : undefined;
+    return <CastForm {...form} {...(startJob ? { startJob } : {})} onChanged={load} />;
   }
 
   if (view.kind === "detail") {
@@ -145,16 +162,41 @@ export function BlobsPage({
     );
   }
 
+  // The iPhone keeps the list of rows; the desktop shows everyone as a cast.
+  const List = isPhone() ? AgentList : DesktopList;
   return (
-    <AgentList
+    <List
       blobs={blobs}
       error={error}
       onClose={onClose}
       onCreate={() => setView({ kind: "create" })}
+      onCreateFrom={(job) => setView({ kind: "create", job })}
+      onChanged={load}
       onOpen={(id) => setView({ kind: "detail", id })}
+      onEdit={(id) => setView({ kind: "edit", id })}
       {...(onOpenApps ? { onOpenApps } : {})}
     />
   );
+}
+
+interface ListProps {
+  blobs: Blob[] | null;
+  error: string | null;
+  onClose: () => void;
+  onCreate: () => void;
+  /** The desktop's first run: a new specialist starting from an example job. */
+  onCreateFrom: (job: string) => void;
+  /** The desktop's profile changed something on the host: read the list again. */
+  onChanged: () => Promise<void>;
+  onOpen: (id: string) => void;
+  onEdit: (id: string) => void;
+  onOpenApps?: () => void;
+}
+
+/** The cast, told which host the specialists work on. */
+function DesktopList(props: ListProps): React.ReactElement {
+  const host = useKleioRemote().status?.active?.host;
+  return <CastList {...props} hostLabel={host ? shortHost(host) : "your host"} />;
 }
 
 // ─── the list ─────────────────────────────────────────────────────────────────────────
@@ -166,14 +208,7 @@ function AgentList({
   onCreate,
   onOpen,
   onOpenApps,
-}: {
-  blobs: Blob[] | null;
-  error: string | null;
-  onClose: () => void;
-  onCreate: () => void;
-  onOpen: (id: string) => void;
-  onOpenApps?: () => void;
-}): React.ReactElement {
+}: ListProps): React.ReactElement {
   const [query, setQuery] = useState("");
   const windowFocused = useWindowFocused();
   const working = blobs?.filter((b) => b.running).length ?? 0;

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { isPhone } from "./platform";
 
 /**
  * The empty-state "wake" screen — the app addressing the user, Matrix-style.
@@ -62,7 +63,12 @@ function MatrixRain(): React.ReactElement {
     // Katakana + digits + a few brackets — the classic rain alphabet.
     const GLYPHS =
       "\u30A2\u30AB\u30B5\u30BF\u30CA\u30CF\u30DE\u30E4\u30E9\u30EF\u30F30123456789<>[]{}=+*";
-    const FONT_SIZE = 14;
+    // A theme can recolour, resize and embolden the rain through these
+    // properties (canvas can't read var() itself); unset, it is the brand
+    // periwinkle/blue at 14px.
+    const css = getComputedStyle(document.documentElement);
+    const FONT_SIZE = Number.parseFloat(css.getPropertyValue("--wake-rain-size")) || 14;
+    const FONT_WEIGHT = css.getPropertyValue("--wake-rain-weight").trim();
 
     let columns = 0;
     let drops: number[] = [];
@@ -103,9 +109,6 @@ function MatrixRain(): React.ReactElement {
     let raf = 0;
     let last = 0;
     const STEP = 70; // ms between rain advances (~14fps — calm, cheap)
-    // A theme can recolour the rain through these properties (canvas can't
-    // read var() itself); unset, it is the brand periwinkle/blue.
-    const css = getComputedStyle(document.documentElement);
     const rainLead = css.getPropertyValue("--wake-rain-lead").trim() || "#9b8cf7";
     const rainTail = css.getPropertyValue("--wake-rain").trim() || "rgba(77, 157, 255, 0.55)";
     const rainFade = css.getPropertyValue("--wake-fade").trim() || "rgba(15, 17, 21, 0.18)";
@@ -120,7 +123,7 @@ function MatrixRain(): React.ReactElement {
       ctx.fillRect(0, 0, width, height);
       // Canvas 2D cannot resolve CSS var(), so spell out the mono stack (matches
       // the --mono token) instead of silently falling back to the default font.
-      ctx.font = `${FONT_SIZE}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      ctx.font = `${FONT_WEIGHT ? `${FONT_WEIGHT} ` : ""}${FONT_SIZE}px ui-monospace, SFMono-Regular, Menlo, monospace`;
 
       for (let i = 0; i < columns; i++) {
         const ch = GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
@@ -248,6 +251,8 @@ export function WakeScreen({
         <span className="wake-line">{text}</span>
         <span className={`wake-cursor${done ? " wake-cursor-rest" : ""}`}>{"\u2588"}</span>
       </div>
+      {/* kleio: the approved empty chat's second line; the iPhone keeps one. */}
+      {chat && !isPhone() && <p className="wake-sub">A new conversation in this project.</p>}
     </div>
   );
 }

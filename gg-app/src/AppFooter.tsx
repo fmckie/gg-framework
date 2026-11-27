@@ -8,9 +8,11 @@ import {
   type ModelOption,
 } from "./agent";
 import { ModelSelect } from "./ModelSelect";
+import { ModelTrigger } from "./ModelPanel";
 import { RunningSchedulesButton } from "./RunningSchedulesButton";
 import type { Routine } from "./useRoutines";
 import { ContextMeter } from "./ContextMeter";
+import { ContextButton } from "./ContextButton";
 import { BackgroundTasksButton } from "./BackgroundTasksButton";
 import { ShimmerText } from "./ShimmerText";
 import { FooterSkeleton } from "./Skeleton";
@@ -30,6 +32,10 @@ function FooterSep(): React.ReactElement {
 const MAX_POWER_COLOR = "#db2777";
 
 const MAX_POWER_SHIMMER = "#f472b6";
+
+// kleio: the approved bars beside the level, one more per step. Off has none,
+// and Ultra has none because the mockup stops at max.
+const EFFORT_BARS: Record<string, number> = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 };
 
 function thinkingColor(level: string | null | undefined): string {
   if (!level) return theme.textDim;
@@ -55,6 +61,7 @@ export function AppFooter({
   onSelectKenModel,
   kenRunning,
   autopilotReviewing,
+  modelPanel,
 }: {
   workspaceMode: WorkspaceMode;
   hydrated: boolean;
@@ -71,6 +78,15 @@ export function AppFooter({
   onSelectKenModel: (modelId: string | null) => void;
   kenRunning: boolean;
   autopilotReviewing: boolean;
+  /** The desktop's Model panel. Without it the old picker stays (the iPhone). */
+  modelPanel?: {
+    open: boolean;
+    panelId: string;
+    onToggle: () => void;
+    triggerRef: React.Ref<HTMLButtonElement>;
+    /** The level being tried in the panel; undefined when none is. */
+    previewLevel?: string | null;
+  };
 }) {
   return (
     <div
@@ -119,15 +135,29 @@ export function AppFooter({
             </span>
           )}
           <span className="footer-right footer-reveal">
-            {contextPct > 0 && (
+            {/* The iPhone keeps the plain reading, hidden at 0. */}
+            {phoneHeader ? (
+              contextPct > 0 && (
+                <>
+                  <ContextMeter pct={contextPct} />
+                  <FooterSep />
+                </>
+              )
+            ) : (
               <>
-                <ContextMeter pct={contextPct} />
+                <ContextButton pct={contextPct} />
                 <FooterSep />
               </>
             )}
             {(state?.supportedThinkingLevels?.length ?? 0) > 0 &&
               (() => {
-                const level = state?.thinkingLevel ?? null;
+                // While the Model panel is open it owns the level: this control
+                // shows the one being tried and waits for Cancel or Use model.
+                const previewing = !phoneHeader && modelPanel?.open === true;
+                const level =
+                  previewing && modelPanel.previewLevel !== undefined
+                    ? modelPanel.previewLevel
+                    : (state?.thinkingLevel ?? null);
                 const label = level ? `Thinking ${level}` : "Thinking off";
                 const maxPower = level === "xhigh" || level === "max";
                 // Reasoning level is baked into the request the run is already
@@ -139,6 +169,9 @@ export function AppFooter({
                   <>
                     <button
                       className="thinking-toggle"
+                      // The desktop session colours the label by level in CSS.
+                      data-level={level ?? "off"}
+                      data-preview={previewing ? "" : undefined}
                       style={{
                         color: locked ? theme.textDim : thinkingColor(level),
                         fontWeight: level === "high" ? 600 : 400,
@@ -146,11 +179,20 @@ export function AppFooter({
                       title={
                         locked
                           ? "Can't change reasoning level while the agent is running — cancel the run or wait for it to finish"
-                          : "Cycle reasoning level"
+                          : previewing
+                            ? "Set in the Model panel while it is open"
+                            : "Cycle reasoning level"
                       }
-                      disabled={locked}
+                      disabled={locked || previewing}
                       onClick={() => void cycleThinking()}
                     >
+                      {!phoneHeader && level && EFFORT_BARS[level] ? (
+                        <span className="effort-mark" aria-hidden="true">
+                          {Array.from({ length: EFFORT_BARS[level] }, (_, bar) => (
+                            <i key={bar} />
+                          ))}
+                        </span>
+                      ) : null}
                       {maxPower && !locked ? (
                         <ShimmerText base={MAX_POWER_COLOR} bright={MAX_POWER_SHIMMER}>
                           {label}
@@ -167,15 +209,28 @@ export function AppFooter({
               <span className="model-label" style={{ color: theme.text }}>
                 Kleio
               </span>
-              <ModelSelect
-                models={models}
-                currentModel={state?.model ?? ""}
-                onSelect={onSelectModel}
-                offerPaid
-                compact={phoneHeader}
-                disabled={running}
-                title={`Switch ${workspaceMode === "chat" ? "Kleio" : workspaceProductName(workspaceMode)}'s model`}
-              />
+              {!phoneHeader && modelPanel ? (
+                <ModelTrigger
+                  models={models}
+                  currentModel={state?.model ?? ""}
+                  disabled={running}
+                  title={`Switch ${workspaceMode === "chat" ? "Kleio" : workspaceProductName(workspaceMode)}'s model`}
+                  open={modelPanel.open}
+                  panelId={modelPanel.panelId}
+                  onToggle={modelPanel.onToggle}
+                  buttonRef={modelPanel.triggerRef}
+                />
+              ) : (
+                <ModelSelect
+                  models={models}
+                  currentModel={state?.model ?? ""}
+                  onSelect={onSelectModel}
+                  offerPaid
+                  compact={phoneHeader}
+                  disabled={running}
+                  title={`Switch ${workspaceMode === "chat" ? "Kleio" : workspaceProductName(workspaceMode)}'s model`}
+                />
+              )}
             </span>
             {workspaceMode === "code" && (
               <>

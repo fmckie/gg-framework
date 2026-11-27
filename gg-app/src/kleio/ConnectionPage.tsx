@@ -6,6 +6,8 @@
 // - The verdict: in plain words, does it work, what was checked, and numbered
 //   steps to fix it when it doesn't (connectionDiagnosis.ts). Over the link
 //   it's diagnoseLink's, in the same words as the gate and the home screen.
+//   The phone shows it as a map and a card. The desktop shows the path
+//   (ConnectionPath.tsx) with one verdict line, and the steps behind Fix.
 // - Kleio's link (Rust: kleio/link.rs, macOS and iOS): that it's end-to-end
 //   encrypted and what isn't, which way it goes and through which relay, its
 //   numbers and path events under Details, and pairing by the host's address
@@ -25,6 +27,11 @@
 // - Devices: every paired device, with the ones paired this week marked New,
 //   and Revoke this device (admin).
 //
+// The desktop folds each section's later sentences behind "More" (never the
+// ones about encryption, Apple, or what is open to the internet), shows Always
+// on after Host, and ends with Remove: Forget host, and each other device's
+// Revoke. The phone keeps today's cards, with both inline.
+//
 // Replaces upstream's Telegram "Remote" page: the iPhone app is Kleio's remote.
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -33,8 +40,6 @@ import {
   ArrowUpIcon,
   CaretRightIcon,
   CheckCircleIcon,
-  CheckIcon,
-  CopyIcon,
   DesktopIcon,
   DeviceMobileIcon,
   HardDrivesIcon,
@@ -52,6 +57,7 @@ import { SettingsCard } from "../settings-section";
 import { SettingsHeaderAction, SettingsHeaderStatus } from "../settings-header";
 import { theme } from "../theme";
 import { toast, type ToastTone } from "../toast";
+import { AlwaysOnSection } from "./AlwaysOn";
 import {
   diagnose,
   isKleioDown,
@@ -59,11 +65,11 @@ import {
   unreachableReason,
   type Checked,
   type Diagnosis,
-  type FixStep,
   type HealthCheck,
   type LinkHealth,
   type Tone,
 } from "./connectionDiagnosis";
+import { ConnectionPath, routeOf } from "./ConnectionPath";
 import { linkVerdict, REACH_TIMEOUT_MS, rememberedHostKind } from "./hostReach";
 import {
   getHostInfo,
@@ -94,8 +100,12 @@ import {
 import { LinkConfirm, takesPairingText, TicketPaste, TicketScan } from "./LinkPairing";
 import { noTicketWords, type OfferEnd, PairingOffer, useWithdrawOnClose } from "./PairingOffer";
 import { readTicket } from "./pairTicket";
+import { More } from "./More";
 import { relTime } from "./relTime";
-import { ForgetHost } from "./ForgetHost";
+import { RemoveGroup, RemoveItem } from "./RemoveGroup";
+import { takeSettingsIntent } from "./settingsIntent";
+import { FixStepText } from "./FixSteps";
+import { ForgetHost, forgetHint, forgetHost } from "./ForgetHost";
 import { RestartNotice, UrlPairFields } from "./UrlPairing";
 import { useFollowLatest } from "./useFollowLatest";
 import {
@@ -250,17 +260,22 @@ export function ConnectionPage(): React.ReactElement {
   // The host's kind, and whether its engine keeps it awake for a run. Can't
   // ask: what it last said of its kind, and nothing about the hold.
   const [hostInfo, setHostInfo] = useState<HostInfo | null>(null);
+  // Whether the host has said, or couldn't be asked: until then Always on is still checking.
+  const [hostAsked, setHostAsked] = useState(false);
   useEffect(() => {
     if (pairedId === null) return;
     let live = true;
     getHostInfo().then(
       (info) => {
-        if (live) setHostInfo(info);
+        if (!live) return;
+        setHostInfo(info);
+        setHostAsked(true);
       },
       () => {
         if (!live) return;
         const kind = rememberedHostKind();
         setHostInfo(kind ? { kind, keepAwake: "unavailable" } : null);
+        setHostAsked(true);
       },
     );
     return () => {
@@ -281,137 +296,302 @@ export function ConnectionPage(): React.ReactElement {
           device,
         });
   const health = checks?.health ?? null;
+  const deviceList = useDevices(pairings, () => {
+    void refreshRemote();
+    void check();
+  });
+  const leg = firstLeg(checks, linkInUse, phone);
 
-  return (
-    <>
-      <SettingsHeaderStatus>
-        <Badge color={verdict ? TONE_COLOR[verdict.tone] : undefined}>
-          {verdict?.badge ?? "Checking…"}
-        </Badge>
-      </SettingsHeaderStatus>
-      <SettingsHeaderAction>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          disabled={checking}
-          onClick={() => void check()}
+  // What Overview asked this page to open on, if it did: read once, as the page opens.
+  const [intent] = useState(takeSettingsIntent);
+  // The desktop's steps, behind Fix: closed until asked for (here, or by
+  // Overview's Fix), and closed again once there is nothing to fix.
+  const [fixOpen, setFixOpen] = useState(intent === "connection-fix");
+  const fixable = (verdict?.fix.length ?? 0) > 0;
+  useEffect(() => {
+    if (verdict && !fixable) setFixOpen(false);
+  }, [verdict, fixable]);
+
+  // The desktop's Remove group: each other device's Revoke, once devices are shown.
+  const selfId = active?.deviceId ?? null;
+  const revocable =
+    !phone && active?.admin ? deviceList.live.filter((d) => d.deviceId !== selfId) : [];
+  const revokes = useRef<HTMLDivElement>(null);
+  const devicesTitle = useRef<HTMLHeadingElement>(null);
+  // After a revoke, focus goes to the next device's item; with none, to Devices.
+  const [revokedAt, setRevokedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (revokedAt === null) return;
+    const next = revokes.current?.children[revokedAt]?.querySelector("button");
+    if (next) next.focus();
+    else devicesTitle.current?.focus();
+    setRevokedAt(null);
+  }, [revokedAt]);
+
+  const cols = (
+    <div className="settings-cols">
+      <div className="settings-col">
+        <LinkCard
+          link={link}
+          setLink={setLink}
+          device={device}
+          hostLabel={hostLabel}
+          quoteText={notices.state === "ok" ? notices.quoteText : null}
+          onPaired={() => void refreshRemote()}
+          byAddress={active !== null && link?.active !== true}
+          admin={active?.admin ?? false}
+        />
+
+        <Section
+          title="Host"
+          lead="Kleio's brain lives here."
+          more="Chats, specialists and code all run on it, so they keep going when this device sleeps."
         >
-          <ArrowClockwiseIcon size={14} weight="bold" aria-hidden="true" />
-          {checking ? "Checking…" : "Check again"}
-        </button>
-      </SettingsHeaderAction>
+          <dl className="conn-facts">
+            {linkInUse ? (
+              <Fact label="Name">
+                <code className="conn-code">{active?.host ?? linkInUse.host ?? "—"}</code>
+              </Fact>
+            ) : (
+              <Fact label="Address">
+                <code className="conn-code">{active?.base ?? paired?.baseUrl ?? "Not paired"}</code>
+              </Fact>
+            )}
+            {health?.state === "ok" && (
+              <Fact label="Reply time">{formatLatency(health.value.latencyMs)}</Fact>
+            )}
+            <Fact label={`This ${device}`}>
+              {active ? (
+                <>
+                  “{active.label}”
+                  {active.admin && (
+                    <Badge color={theme.warning} className="conn-inline-badge">
+                      Admin
+                    </Badge>
+                  )}
+                </>
+              ) : (
+                "Not paired"
+              )}
+            </Fact>
+            {paired && <Fact label="Paired">{relTime(paired.pairedAt)}</Fact>}
+          </dl>
+          {keptAwake && (
+            <p className="settings-desc">
+              {`Kleio keeps ${hostLabel} awake while a run is going. Closing the lid still sleeps it.`}
+            </p>
+          )}
+          {/* Forgotten in this launch: it applies on the next. The desktop's
+              Forget host waits under Remove, at the end of the page. */}
+          {paired
+            ? phone && <ForgetHost compact onForgot={refreshRemote} />
+            : active && <RestartNotice what="You just forgot the host." />}
+        </Section>
 
-      <ConnectionMap
-        device={device}
-        hostLabel={hostLabel}
-        health={health}
-        via={linkInUse ? "Kleio's link" : "Tailscale"}
-        {...firstLeg(checks, linkInUse, phone)}
-      />
+        {/* On the desktop, whether the host stays on and how to keep it on: Overview's
+            Host row links here. The phone has it on Setup. */}
+        {!phone && active && (
+          <AlwaysOnSection
+            kind={hostAsked ? (hostInfo?.kind ?? null) : undefined}
+            name={hostLabel}
+            arrive={intent === "connection-always-on"}
+          />
+        )}
 
-      <Verdict verdict={verdict} hostLabel={hostLabel} />
-
-      <div className="settings-cols">
-        <div className="settings-col">
-          <LinkCard
-            link={link}
-            setLink={setLink}
+        {active && (
+          <NotificationsCard
+            notices={notices}
+            admin={active.admin}
             device={device}
             hostLabel={hostLabel}
-            quoteText={notices.state === "ok" ? notices.quoteText : null}
-            onPaired={() => void refreshRemote()}
-            byAddress={active !== null && link?.active !== true}
-            admin={active?.admin ?? false}
+            laptop={laptop}
+            onSaved={(s) => setNotices({ state: "ok", quoteText: s.quoteText })}
           />
+        )}
 
-          <SettingsCard
-            title="Host"
-            description="Kleio's brain lives here. Chats, specialists and code all run on it, so they keep going when this device sleeps."
+        {active && <RelaysCard admin={active.admin} hostLabel={hostLabel} />}
+
+        {!phone && overLink === false && (
+          <TailscaleCard net={checks === null ? undefined : checks.net} hostLabel={hostLabel} />
+        )}
+      </div>
+
+      <div className="settings-col">
+        <PairDeviceCard
+          baseUrl={active?.base ?? null}
+          admin={active?.admin ?? false}
+          onDone={(how) => {
+            void check();
+            if (how === "paired") setPairings((n) => n + 1);
+          }}
+        />
+        <DevicesCard
+          admin={active?.admin ?? false}
+          selfId={selfId}
+          list={deviceList}
+          titleRef={devicesTitle}
+        />
+      </div>
+    </div>
+  );
+
+  if (phone) {
+    return (
+      <>
+        <SettingsHeaderStatus>
+          <Badge color={verdict ? TONE_COLOR[verdict.tone] : undefined}>
+            {verdict?.badge ?? "Checking…"}
+          </Badge>
+        </SettingsHeaderStatus>
+        <SettingsHeaderAction>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={checking}
+            onClick={() => void check()}
           >
-            <dl className="conn-facts">
-              {linkInUse ? (
-                <Fact label="Name">
-                  <code className="conn-code">{active?.host ?? linkInUse.host ?? "—"}</code>
-                </Fact>
-              ) : (
-                <Fact label="Address">
-                  <code className="conn-code">
-                    {active?.base ?? paired?.baseUrl ?? "Not paired"}
-                  </code>
-                </Fact>
-              )}
-              {health?.state === "ok" && (
-                <Fact label="Reply time">{formatLatency(health.value.latencyMs)}</Fact>
-              )}
-              <Fact label={`This ${device}`}>
-                {active ? (
-                  <>
-                    “{active.label}”
-                    {active.admin && (
-                      <Badge color={theme.warning} className="conn-inline-badge">
-                        Admin
-                      </Badge>
-                    )}
-                  </>
-                ) : (
-                  "Not paired"
-                )}
-              </Fact>
-              {paired && <Fact label="Paired">{relTime(paired.pairedAt)}</Fact>}
-            </dl>
-            {keptAwake && (
-              <p className="settings-desc">
-                {`Kleio keeps ${hostLabel} awake while a run is going. Closing the lid still sleeps it.`}
-              </p>
-            )}
-            {/* Forgotten in this launch: it applies on the next. */}
-            {paired ? (
-              <ForgetHost compact onForgot={refreshRemote} />
-            ) : (
-              active && <RestartNotice what="You just forgot the host." />
-            )}
-          </SettingsCard>
+            <ArrowClockwiseIcon size={14} weight="bold" aria-hidden="true" />
+            {checking ? "Checking…" : "Check again"}
+          </button>
+        </SettingsHeaderAction>
 
-          {active && (
-            <NotificationsCard
-              notices={notices}
-              admin={active.admin}
-              device={device}
-              hostLabel={hostLabel}
-              laptop={laptop}
-              onSaved={(s) => setNotices({ state: "ok", quoteText: s.quoteText })}
+        <ConnectionMap
+          device={device}
+          hostLabel={hostLabel}
+          health={health}
+          via={linkInUse ? "Kleio's link" : "Tailscale"}
+          {...leg}
+        />
+
+        <Verdict verdict={verdict} hostLabel={hostLabel} />
+
+        {cols}
+      </>
+    );
+  }
+
+  // The desktop says health once: the path and its verdict line. Overview's
+  // Host row is the summary that links here, from the same diagnosis.
+  return (
+    <div className="cx-page">
+      <ConnectionPath
+        selfDetail={leg.selfDetail}
+        hostLabel={hostLabel}
+        replyTime={health?.state === "ok" ? formatLatency(health.value.latencyMs) : null}
+        route={routeOf(checks, linkInUse, verdict, leg.selfState === "is-down")}
+        verdict={verdict}
+        checking={checking}
+        onCheck={() => void check()}
+        fixOpen={fixOpen}
+        onFix={() => setFixOpen((open) => !open)}
+        arrivedToFix={intent === "connection-fix"}
+      />
+
+      {cols}
+
+      {(paired || revocable.length > 0) && (
+        <RemoveGroup>
+          {paired && (
+            <RemoveItem
+              what={`This Mac's pairing with ${hostLabel}`}
+              ask="Forget host"
+              confirm="Forget host"
+              busyText="Forgetting…"
+              hint={forgetHint()}
+              onRemove={() => forgetHost(refreshRemote)}
+              describeError={explainError}
             />
           )}
-
-          {active && <RelaysCard admin={active.admin} hostLabel={hostLabel} />}
-
-          {!phone && overLink === false && (
-            <TailscaleCard net={checks === null ? undefined : checks.net} hostLabel={hostLabel} />
-          )}
-        </div>
-
-        <div className="settings-col">
-          <PairDeviceCard
-            baseUrl={active?.base ?? null}
-            admin={active?.admin ?? false}
-            onDone={(how) => {
-              void check();
-              if (how === "paired") setPairings((n) => n + 1);
-            }}
-          />
-          <DevicesCard
-            admin={active?.admin ?? false}
-            selfId={active?.deviceId ?? null}
-            pairings={pairings}
-            onChanged={() => {
-              void refreshRemote();
-              void check();
-            }}
-          />
-        </div>
-      </div>
-    </>
+          <div ref={revokes}>
+            {revocable.map((d, i) => (
+              <RemoveItem
+                key={d.deviceId}
+                // Its row's second line too, so two devices of one name can be told apart.
+                what={`${d.label} · ${deviceSeen(d)}`}
+                ask="Revoke this device"
+                label={`Revoke this device: ${d.label}`}
+                confirm="Revoke"
+                busyText="Revoke"
+                hint="It's cut off straight away."
+                onRemove={async () => {
+                  await deviceList.revoke(d);
+                  setRevokedAt(i);
+                }}
+                describeError={explainError}
+              />
+            ))}
+          </div>
+        </RemoveGroup>
+      )}
+    </div>
   );
+}
+
+/**
+ * One section of the page. The phone gets today's card, with the whole
+ * description. The desktop keeps `lead` in view and folds `more` behind
+ * "More", so a sentence that must stay in view belongs in `lead`.
+ */
+function Section({
+  title,
+  badge,
+  lead,
+  more,
+  titleRef,
+  children,
+}: {
+  title: string;
+  badge?: React.ReactNode;
+  lead: string;
+  more?: string;
+  /** The desktop's heading, for moving focus to it. */
+  titleRef?: React.Ref<HTMLHeadingElement>;
+  children?: React.ReactNode;
+}): React.ReactElement {
+  if (isPhone()) {
+    return (
+      <SettingsCard title={title} badge={badge} description={more ? `${lead} ${more}` : lead}>
+        {children}
+      </SettingsCard>
+    );
+  }
+  const heading = (
+    <h3 className="settings-section-title" ref={titleRef} tabIndex={-1}>
+      {title}
+    </h3>
+  );
+  return (
+    <section className="settings-card" aria-label={title}>
+      <div className="settings-section-head">
+        {badge ? (
+          <div className="settings-card-title-row">
+            <div className="settings-card-titles">{heading}</div>
+            {badge}
+          </div>
+        ) : (
+          heading
+        )}
+        <p className="settings-desc">{lead}</p>
+        {more && (
+          <More about={title}>
+            <p className="settings-desc">{more}</p>
+          </More>
+        )}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** Prose the phone shows in full and the desktop folds behind its section's "More". */
+function Folded({
+  about,
+  children,
+}: {
+  about: string;
+  children: React.ReactNode;
+}): React.ReactNode {
+  return isPhone() ? children : <More about={about}>{children}</More>;
 }
 
 // ─── the verdict: does it work, what was checked, how to fix it ─────────────
@@ -473,65 +653,6 @@ function Verdict({
         )}
       </div>
     </section>
-  );
-}
-
-function FixStepText({ step }: { step: FixStep }): React.ReactElement {
-  const { link, command } = step;
-  return (
-    <>
-      {step.text}
-      {link && (
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm conn-fix-link"
-          onClick={() => void openUrl(link.url)}
-        >
-          {link.label}
-        </button>
-      )}
-      {command && <CommandLine command={command} />}
-    </>
-  );
-}
-
-/** A command to run on the Mac mini, with a button that copies it. */
-function CommandLine({ command }: { command: string }): React.ReactElement {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const id = window.setTimeout(() => setCopied(false), 1500);
-    return () => window.clearTimeout(id);
-  }, [copied]);
-  return (
-    <span className="conn-command">
-      {/* Wraps only between words: a break inside `-k` or a name would misread. */}
-      <code>
-        {command.split(" ").map((word, i) => (
-          <span key={`${i}:${word}`}>
-            {i > 0 && " "}
-            <span className="conn-command-word">{word}</span>
-          </span>
-        ))}
-      </code>
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm"
-        onClick={() => {
-          navigator.clipboard.writeText(command).then(
-            () => setCopied(true),
-            () => toast("Couldn't copy. Select the command and copy it instead.", "error"),
-          );
-        }}
-      >
-        {copied ? (
-          <CheckIcon size={13} weight="bold" aria-hidden="true" />
-        ) : (
-          <CopyIcon size={13} weight="bold" aria-hidden="true" />
-        )}
-        {copied ? "Copied" : "Copy"}
-      </button>
-    </span>
   );
 }
 
@@ -699,9 +820,10 @@ function TailscaleCard({
 }): React.ReactElement {
   const ts = net?.state === "ok" ? net.value : null;
   return (
-    <SettingsCard
+    <Section
       title="Tailscale"
-      description="The private network between your devices. Nothing is open to the internet."
+      // Never folded: what is open to the internet stays in view.
+      lead="The private network between your devices. Nothing is open to the internet."
     >
       {net === undefined ? (
         <p className="settings-desc">Checking Tailscale on this Mac…</p>
@@ -714,16 +836,18 @@ function TailscaleCard({
           Tailscale isn't connected on this Mac, so there's nothing to show yet.
         </p>
       ) : (
-        <dl className="conn-facts">
-          {ts.tailnet && <Fact label="Account">{ts.tailnet}</Fact>}
-          {ts.self && <Fact label="This Mac">{ts.self.name}</Fact>}
-          {ts.host?.ip && (
-            <Fact label={hostLabel}>
-              <code className="conn-code">{ts.host.ip}</code>
-            </Fact>
-          )}
-          {ts.version && <Fact label="Version">{ts.version.split("-")[0]}</Fact>}
-        </dl>
+        <Disclosure summary="Details">
+          <dl className="conn-facts">
+            {ts.tailnet && <Fact label="Account">{ts.tailnet}</Fact>}
+            {ts.self && <Fact label="This Mac">{ts.self.name}</Fact>}
+            {ts.host?.ip && (
+              <Fact label={hostLabel}>
+                <code className="conn-code">{ts.host.ip}</code>
+              </Fact>
+            )}
+            {ts.version && <Fact label="Version">{ts.version.split("-")[0]}</Fact>}
+          </dl>
+        </Disclosure>
       )}
       {ts && ts.health.length > 0 && (
         <div className="conn-health-box">
@@ -735,7 +859,7 @@ function TailscaleCard({
           </ul>
         </div>
       )}
-    </SettingsCard>
+    </Section>
   );
 }
 
@@ -1077,7 +1201,16 @@ function LinkCard({
         ) : (
           <>
             {byAddress ? (
-              <p className="settings-desc">{switchWords(device, hostLabel, admin)}</p>
+              phone ? (
+                <p className="settings-desc">{switchWords(device, hostLabel, admin)}</p>
+              ) : (
+                <>
+                  <p className="settings-desc">{switchParts(device, hostLabel, admin).now}</p>
+                  <More about="Kleio's link">
+                    <p className="settings-desc">{switchParts(device, hostLabel, admin).offer}</p>
+                  </More>
+                </>
+              )
             ) : (
               <p className="settings-desc">Not paired over the link.</p>
             )}
@@ -1131,7 +1264,11 @@ function LinkCard({
           <Fact label="Relay">{linkRelay(link)}</Fact>
         </dl>
       )}
-      {inUse && link.relayN0 && <p className="settings-desc">{N0_RELAY_LINE}</p>}
+      {inUse && link.relayN0 && (
+        <Folded about="Kleio's link">
+          <p className="settings-desc">{N0_RELAY_LINE}</p>
+        </Folded>
+      )}
       {switchStatus && switchStatus.state !== "none" && (
         <SwitchCleanup
           status={switchStatus}
@@ -1159,14 +1296,27 @@ function LinkCard({
   );
 }
 
-/** What a device paired by address is offered, to switch to the link. */
-export function switchWords(device: Device, hostLabel: string, admin: boolean): string {
+/** What a device paired by address is told: how it reaches the host now, then the offer to switch. */
+function switchParts(
+  device: Device,
+  hostLabel: string,
+  admin: boolean,
+): { now: string; offer: string } {
   const how = admin
     ? `It pairs again with a code of its own, so this ${device} stays an admin.`
     : device === "iPhone"
       ? "Scan a pairing QR code from an admin device's Settings → Connection."
       : "Paste pairing text from an admin device's Settings → Connection.";
-  return `This ${device} reaches ${hostLabel} over Tailscale. Switch to Kleio's link: no Tailscale needed. ${how} Your pairing over Tailscale stays until the link has reached ${hostLabel}.`;
+  return {
+    now: `This ${device} reaches ${hostLabel} over Tailscale.`,
+    offer: `Switch to Kleio's link: no Tailscale needed. ${how} Your pairing over Tailscale stays until the link has reached ${hostLabel}.`,
+  };
+}
+
+/** What a device paired by address is offered, to switch to the link. */
+export function switchWords(device: Device, hostLabel: string, admin: boolean): string {
+  const { now, offer } = switchParts(device, hostLabel, admin);
+  return `${now} ${offer}`;
 }
 
 /** What the switch's cleanup is waiting for, and the way out when the host refused. */
@@ -1580,9 +1730,10 @@ function RelaysCard({
   }
 
   return (
-    <SettingsCard
+    <Section
       title="Relays"
-      description="Your devices find this host through these, in order. n0's are free and shared, and slow big downloads to about 1 MB/s. A relay of your own is faster."
+      lead="Your devices find this host through these, in order."
+      more="n0's are free and shared, and slow big downloads to about 1 MB/s. A relay of your own is faster."
     >
       <ol className="conn-devices" aria-label="Relays, in order">
         {entries.map((entry, i) => {
@@ -1777,7 +1928,7 @@ function RelaysCard({
       ) : (
         <p className="settings-desc">Only an admin device can change the relays.</p>
       )}
-    </SettingsCard>
+    </Section>
   );
 }
 
@@ -1828,9 +1979,10 @@ function PairDeviceCard({
   }
 
   return (
-    <SettingsCard
+    <Section
       title="Pair a device"
-      description="Pair another iPhone or Mac with your host. An iPhone scans the QR code, and a Mac pastes its pairing text."
+      lead="Pair another iPhone or Mac with your host."
+      more="An iPhone scans the QR code, and a Mac pastes its pairing text."
     >
       {!admin ? (
         <p className="settings-desc">
@@ -1849,7 +2001,7 @@ function PairDeviceCard({
           </p>
           <button
             type="button"
-            className="btn btn-primary btn-sm"
+            className="btn btn-primary"
             disabled={busy}
             onClick={() => void mint()}
           >
@@ -1862,29 +2014,45 @@ function PairDeviceCard({
           {error}
         </p>
       )}
-    </SettingsCard>
+    </Section>
   );
 }
 
 // ─── devices ────────────────────────────────────────────────────────────────
 
-function DevicesCard({
-  admin,
-  selfId,
-  pairings,
-  onChanged,
-}: {
-  admin: boolean;
-  selfId: string | null;
-  /** How many devices Pair a device has paired on this page. */
-  pairings: number;
-  onChanged: () => void;
-}): React.ReactElement {
-  const [devices, setDevices] = useState<PairedDevice[] | null>(null);
+/** A device's second line: when it was last active, else when it paired. */
+function deviceSeen(d: PairedDevice): string {
+  return d.lastSeen ? `Active ${relTime(d.lastSeen)}` : `Paired ${relTime(d.created)}`;
+}
+
+/** The host's devices as the page holds them, once asked for. */
+interface DeviceList {
+  /** `null` until shown: showing them asks for Touch ID. */
+  devices: PairedDevice[] | null;
+  /** The ones not revoked. */
+  live: PairedDevice[];
   /** When the list was loaded: what New is measured from. */
+  readAt: number;
+  error: string | null;
+  setError: (error: string | null) => void;
+  busy: boolean;
+  load: () => Promise<void>;
+  /** Revokes one and says so. Throws when the host wouldn't. */
+  revoke: (device: PairedDevice) => Promise<void>;
+}
+
+/**
+ * The device list and revoking, held by the page: the desktop draws the list
+ * in Devices and each other device's Revoke under Remove.
+ */
+function useDevices(
+  /** How many devices Pair a device has paired on this page. */
+  pairings: number,
+  onChanged: () => void,
+): DeviceList {
+  const [devices, setDevices] = useState<PairedDevice[] | null>(null);
   const [readAt, setReadAt] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
@@ -1914,21 +2082,48 @@ function DevicesCard({
     setBusy(true);
     try {
       setDevices(await kleio.revoke(device.deviceId));
-      setConfirm(null);
       toast(`${device.label} revoked.`, "success");
       onChanged();
-    } catch (e) {
-      setError(explainError(e));
     } finally {
       setBusy(false);
     }
   }
 
   const live = (devices ?? []).filter((d) => !d.revoked);
+  return { devices, live, readAt, error, setError, busy, load, revoke };
+}
+
+function DevicesCard({
+  admin,
+  selfId,
+  list,
+  titleRef,
+}: {
+  admin: boolean;
+  selfId: string | null;
+  list: DeviceList;
+  /** The desktop's heading: where focus goes once the last other device is revoked. */
+  titleRef: React.Ref<HTMLHeadingElement>;
+}): React.ReactElement {
+  const { devices, live, readAt, error, busy, load } = list;
+  const phone = isPhone();
+  const [confirm, setConfirm] = useState<string | null>(null);
+
+  async function revoke(device: PairedDevice): Promise<void> {
+    try {
+      await list.revoke(device);
+      setConfirm(null);
+    } catch (e) {
+      list.setError(explainError(e));
+    }
+  }
+
   return (
-    <SettingsCard
+    <Section
       title="Devices"
-      description="Everything paired with your host. New marks a device paired this week. Revoke one and it's cut off straight away."
+      lead="Everything paired with your host."
+      more="New marks a device paired this week. Revoke one and it's cut off straight away."
+      titleRef={titleRef}
     >
       {!admin ? (
         <p className="settings-desc">Only an admin device can see and revoke devices.</p>
@@ -1972,11 +2167,11 @@ function DevicesCard({
                     </Badge>
                   )}
                 </span>
-                <span className="conn-device-sub">
-                  {d.lastSeen ? `Active ${relTime(d.lastSeen)}` : `Paired ${relTime(d.created)}`}
-                </span>
+                <span className="conn-device-sub">{deviceSeen(d)}</span>
               </span>
-              {d.deviceId !== selfId &&
+              {/* The desktop's Revoke waits under Remove, at the end of the page. */}
+              {phone &&
+                d.deviceId !== selfId &&
                 (confirm === d.deviceId ? (
                   <span className="conn-inline-confirm">
                     <button
@@ -2009,11 +2204,16 @@ function DevicesCard({
           ))}
         </ul>
       )}
+      {!phone && admin && live.some((d) => d.deviceId !== selfId) && (
+        <p className="settings-desc cx-quiet">
+          Revoke a device under Remove, at the end of this page.
+        </p>
+      )}
       {error && (
         <p className="conn-bad" role="alert">
           {error}
         </p>
       )}
-    </SettingsCard>
+    </Section>
   );
 }

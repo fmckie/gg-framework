@@ -16,10 +16,28 @@ export function describePlanDecision(decision: PlanDecision): string {
  * decision leaves behind. Accepting or revising sends the agent off to work;
  * a rejection ends it.
  */
-export function PlanDecisionNotice({ decision }: { decision: PlanDecision }): React.ReactElement {
+export function PlanDecisionNotice({
+  decision,
+  title,
+}: {
+  decision: PlanDecision;
+  /** The approved plan's name. Given, an accepted plan folds into one row. */
+  title?: string;
+}): React.ReactElement {
   const rejected = decision === "rejected";
+  if (decision === "accepted" && title) {
+    return (
+      <p className="plan-done" role="status" data-decision="accepted">
+        <span className="plan-done-check" aria-hidden="true">
+          {"\u2713"}
+        </span>
+        {title}
+        <span className="plan-done-state">{" \u00b7 Approved"}</span>
+      </p>
+    );
+  }
   return (
-    <div className="placeholder-notice" role="status">
+    <div className="placeholder-notice" role="status" data-decision={decision}>
       <StatusDot tone={rejected ? "neutral" : "active"} label={rejected ? "Stopped" : "Working"} />
       <span className={rejected ? "placeholder-muted" : "placeholder-attention"}>
         {describePlanDecision(decision)}

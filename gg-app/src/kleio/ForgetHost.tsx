@@ -51,6 +51,18 @@ export function forgotWords(
 }
 
 /**
+ * The forgetting itself, for every place that offers it: asks the host to
+ * remove this device, forgets the pairing here whatever it said, says in a
+ * toast what that was, then `onForgot`. Throws when it couldn't forget here.
+ */
+export async function forgetHost(onForgot: () => Promise<void>): Promise<void> {
+  const words = forgotWords(await kleio.forget());
+  if (words?.sticky) toast(words.message, words.tone, 0);
+  else if (words) toast(words.message, words.tone);
+  await onForgot();
+}
+
+/**
  * Forget host…, then Keep or Forget host. `compact`: a settings card's small
  * buttons, else a modal's.
  */
@@ -69,10 +81,7 @@ export function ForgetHost({
     setBusy(true);
     setError(null);
     try {
-      const words = forgotWords(await kleio.forget());
-      if (words?.sticky) toast(words.message, words.tone, 0);
-      else if (words) toast(words.message, words.tone);
-      await onForgot();
+      await forgetHost(onForgot);
     } catch (e) {
       setError(explainError(e));
     } finally {

@@ -1,0 +1,613 @@
+/* Olympus, parts 2 to 6c: the lane, its card, its travel, its tesserae, its floor, the gods' fidgets and their notices. A marble
+   stylobate over the composer; each subagent at work is a god on it, acting
+   its agent's latest tool, its name carved in the step's face under it. The
+   engine (floor.ts) builds every god, puts it where it is and says which pose
+   shows; here is only how each state looks. Drawn only on the desktop
+   (LaneMount.tsx).
+   Nothing here moves anything. Every move is the engine's, frame by frame
+   from its own clock: the lane's height as it rises and falls, where a god is
+   as it walks, how far its figure and its name show, how far its ribbon is
+   unrolled (--oly-u), how far it is dimmed (--oly-dim) and cracked
+   (--oly-crack), the press of its seal, and its fidget at its work: a
+   transform on its pictures' box for the whole figure, data-frame for a
+   pose's second frame (a cut: the one picture hidden, the other shown), and a
+   transform on a pose's cut-out part. So no rule here runs over time,
+   and none asks whether the reader wants less motion: the engine asks that
+   itself, and then moves nothing. One pose is still cut to the next, and the
+   card is up or it isn't. The tesserae a god is set from and goes back to
+   never come here at all, nor the floor's mosaic: the engine draws each stone
+   on a canvas, which this sheet only places.
+
+   Contrast, WCAG 2, as the mockup measured it: the carved names (#3b3133)
+   6.5:1 on the marble's face; on the parchment (#d8d0c4) the ribbon's ink
+   9.7:1 and its crimson initial (#c42638) 3.7:1; the ink seal 6.2:1 on the
+   ivory scroll; the crack 4.7:1 on the dimmed figure; the focused name's
+   cartouche, in the names' own ink, 6.5:1; on the card's plate (#1f1a1b) the
+   god's name in slate teal 6.3:1. */
+.oly-lane {
+  --oly-tread: 22px;
+  --oly-parch: #d8d0c4;
+  --oly-ink: #33241f;
+  position: relative;
+  box-sizing: content-box;
+  height: 125px;
+  margin: 8px var(--kleio-gutter) 0;
+  overflow: hidden;
+  border: 1px solid var(--kleio-rule-strong);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  /* The mosaic's bed: bare until the floor is laid, and in its joints after. */
+  background: #0e0b0b;
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: none;
+}
+.oly-lane.is-shut {
+  height: 0;
+  margin-top: 0;
+  border-width: 0;
+}
+
+/* The lane is the top of the composer's box: the activity line under it, or
+   the text box itself, joins it square, with a dark groove and a faint lip. */
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(> .oly-lane:not(.is-shut))
+  > .oly-lane
+  + .task-activity:last-child {
+  margin-top: 0;
+  border-top-color: rgb(0 0 0 / 0.5);
+  border-radius: 0;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(> .oly-lane:last-child:not(.is-shut))
+  + .inputwrap {
+  border-top-color: rgb(0 0 0 / 0.5);
+  border-radius: 0 0 12px 12px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
+}
+/* Focus and file-drop light the whole box, the lane with it. */
+html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap:focus-within) > .oly-lane {
+  border-color: rgb(255 255 255 / 0.22);
+}
+html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover) > .oly-lane {
+  border-color: var(--kleio-lapis);
+}
+
+/* The floor's canvas, on the bed and behind everything on the lane: the floor
+   above the stylobate, a px over the lane's inner top. */
+.oly-mosaic {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  bottom: var(--oly-tread);
+  display: block;
+  width: 100%;
+  height: 104px;
+}
+/* The tesserae's canvas, behind the gods: the floor above the stylobate, a px
+   over the lane's inner top, where floor.ts measures a cell's top from. */
+.oly-fx {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  bottom: var(--oly-tread);
+  display: block;
+  width: 100%;
+  height: 104px;
+}
+
+/* The gods: a 73×100 cell each, feet on the stylobate, placed by floor.ts. */
+.oly-gods {
+  position: absolute;
+  inset: 0;
+}
+.oly-cell {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  bottom: var(--oly-tread);
+  width: 73px;
+  height: 100px;
+}
+/* The frame takes no pointer; a god does, for its card: its cell, the pose it
+   shows, its ribbon, and its carved name. A hidden pose, wider than the cell,
+   is hidden outright (visibility), so it is not there to be pointed at. A god
+   is one of the lane's toolbar; its focus is shown on its name. */
+.oly-cell,
+.oly-ins {
+  pointer-events: auto;
+}
+.oly-cell:focus {
+  outline: none;
+}
+.oly-cell.is-speaking {
+  z-index: 3; /* in front while it speaks; floor.ts keeps its ribbon clear of every neighbour */
+}
+.oly-fig {
+  position: absolute;
+  inset: 0;
+  transform-origin: 33px 50%; /* the head line: turning doesn't move the head */
+}
+.oly-cell.is-left .oly-fig {
+  transform: scaleX(-1);
+}
+.oly-poses,
+.oly-pose,
+.oly-fissure {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.oly-pose {
+  display: block;
+  visibility: hidden;
+}
+.oly-cell[data-pose="stand"] .oly-p-stand,
+.oly-cell[data-pose="speak"] .oly-p-speak,
+.oly-cell[data-pose="stride"] .oly-p-stride {
+  visibility: visible;
+}
+/* The skill poses: one for each family of tool a god has its own way with.
+   Each is as wide as it needs, so floor.ts gives its picture a left and a
+   width of its own in the cell. */
+.oly-cell[data-pose="look"] .oly-p-look,
+.oly-cell[data-pose="web"] .oly-p-web,
+.oly-cell[data-pose="make"] .oly-p-make,
+.oly-cell[data-pose="run"] .oly-p-run,
+.oly-cell[data-pose="think"] .oly-p-think,
+.oly-cell[data-pose="think-l"] .oly-p-think-l,
+.oly-cell[data-pose="think-r"] .oly-p-think-r {
+  visibility: visible;
+}
+/* A fidget of the whole figure, or of a part, is the engine's transform: a
+   shift, and a turn about a pivot it gives from the box's own corner. */
+.oly-poses,
+.oly-part {
+  transform-origin: 0 0;
+}
+/* A pose in two frames: the second is shown in place of the first while the god has data-frame. */
+.oly-cell:not([data-frame="b"]) .oly-pose.oly-f-b,
+.oly-cell[data-frame="b"] .oly-pose:not(.oly-f-b) {
+  visibility: hidden;
+}
+/* A cut-out part is the pose's own picture again, clipped to the part: hidden
+   until the engine moves it (data-part); then the pose gives up the part's
+   hole, and the part shows over it. The engine sets both shapes as it builds
+   the god; at rest only the pose itself is shown. */
+.oly-part {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  visibility: hidden;
+  clip-path: var(--oly-clip);
+}
+.oly-cell[data-part] .oly-pose {
+  clip-path: var(--oly-hole, none);
+}
+.oly-cell[data-part][data-pose="look"] .oly-part[data-of="look"],
+.oly-cell[data-part][data-pose="web"] .oly-part[data-of="web"],
+.oly-cell[data-part][data-pose="make"] .oly-part[data-of="make"],
+.oly-cell[data-part][data-pose="run"] .oly-part[data-of="run"],
+.oly-cell[data-part][data-pose="think"] .oly-part[data-of="think"],
+.oly-cell[data-part][data-pose="think-l"] .oly-part[data-of="think-l"],
+.oly-cell[data-part][data-pose="think-r"] .oly-part[data-of="think-r"] {
+  visibility: visible;
+}
+/* The crown, raised toward a god that has finished: while the engine shows it
+   (data-react), it alone is shown, in place of the pose the record asks for,
+   which stays data-pose; and, being what is shown, it is what is pointed at.
+   A glance, a glance back and a turn to face are the engine's transform and
+   its facing, as a fidget's are. */
+.oly-cell[data-react="crown"] .oly-pose {
+  visibility: hidden;
+}
+.oly-cell[data-react="crown"] .oly-pose.oly-p-crown {
+  visibility: visible;
+}
+/* A start, when the reader presses a god at its work, is shown the same way:
+   its start picture alone, in place of the pose the record asks for. Its hop
+   is the engine's transform. */
+.oly-cell[data-react="start"] .oly-pose {
+  visibility: hidden;
+}
+.oly-cell[data-react="start"] .oly-pose.oly-p-start {
+  visibility: visible;
+}
+/* A god at its work can be startled: the app's own mark of something to press. */
+.oly-cell.is-startable {
+  cursor: pointer;
+}
+/* Failed and stopped both dim; only a failure cracks. How far, on the way, is
+   the engine's: all the way with nothing said. */
+.oly-cell.is-dim .oly-poses {
+  filter: grayscale(calc(0.6 * var(--oly-dim, 1))) brightness(calc(1 - 0.26 * var(--oly-dim, 1)))
+    contrast(calc(1 - 0.08 * var(--oly-dim, 1)));
+}
+.oly-fissure {
+  display: none;
+  overflow: visible;
+  fill: none;
+  stroke-linejoin: bevel;
+  stroke-linecap: round;
+  opacity: var(--oly-crack, 1);
+}
+.oly-cell.is-cracked .oly-fissure {
+  display: block;
+}
+
+/* A greeting or a farewell: a banderole from the open hand, its line in ink
+   with a rubricated initial. floor.ts places it at the hand and turns it a
+   little, and says how far it is unrolled: --oly-u, from 0 to 1. The band
+   shows from the hand as far as its rolled end, which is gone once it is whole. */
+.oly-ribbon {
+  position: absolute;
+  top: 0;
+  height: 15px;
+  white-space: nowrap;
+}
+.oly-ribbon.is-r {
+  transform-origin: 0 50%;
+  clip-path: inset(-6px calc((1 - var(--oly-u, 1)) * (100% - 5px)) -6px -6px);
+}
+.oly-ribbon.is-l {
+  transform-origin: 100% 50%;
+  clip-path: inset(-6px -6px -6px calc((1 - var(--oly-u, 1)) * (100% - 5px)));
+}
+.oly-band {
+  display: block;
+  height: 100%;
+  padding: 0 14px 0 7px;
+  background: var(--oly-parch);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.4),
+    inset 0 -1px 0 rgb(74 52 42 / 0.45);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 5px) 50%, 100% 100%, 0 100%); /* a swallowtail */
+  font:
+    400 11px/15px ui-serif,
+    "New York",
+    "Iowan Old Style",
+    Georgia,
+    serif;
+  letter-spacing: 0.01em;
+  color: var(--oly-ink);
+}
+.oly-ribbon.is-l .oly-band {
+  padding: 0 7px 0 14px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 5px 50%);
+}
+.oly-band b {
+  font-weight: inherit;
+  color: #c42638;
+}
+.oly-roll {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 5px;
+  border-radius: 3px / 2px;
+  background: linear-gradient(
+    90deg,
+    #5c5249,
+    #a2978a 22%,
+    #d3cabe 47%,
+    #c0b5a8 66%,
+    #8b8073 86%,
+    #574d45
+  );
+  opacity: clamp(0, (1 - var(--oly-u, 1)) * 14, 1);
+}
+.oly-ribbon.is-r .oly-roll {
+  left: calc(var(--oly-u, 1) * (100% - 5px));
+}
+.oly-ribbon.is-l .oly-roll {
+  right: calc(var(--oly-u, 1) * (100% - 5px));
+}
+
+/* Done: an ink-wax seal pressed on the rolled scroll, which only the standing
+   pose holds. The press is the engine's. */
+.oly-seal {
+  position: absolute;
+  left: var(--oly-ex);
+  top: var(--oly-ey);
+  width: 9px;
+  height: 9px;
+  visibility: hidden;
+}
+.oly-cell.is-sealed[data-pose="stand"] .oly-seal {
+  visibility: visible;
+}
+.oly-cell.is-left .oly-seal {
+  scale: -1 1; /* the mark stays the right way round when its god turns */
+}
+
+/* The stylobate: one unbroken marble step; each god's name is carved in its face. */
+.oly-stylobate {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--oly-tread);
+  background: linear-gradient(
+    180deg,
+    #e9e2da 0 1px,
+    #d2c9bf 1px 3px,
+    #aca298 3px 4px,
+    #c3b9af 4px calc(100% - 1px),
+    #8f857c calc(100% - 1px)
+  );
+}
+.oly-marble {
+  position: absolute;
+  inset: 4px 0 1px;
+  width: 100%;
+  height: calc(100% - 5px);
+}
+.oly-names {
+  position: absolute;
+  inset: 0;
+}
+.oly-ins {
+  position: absolute;
+  left: 0;
+  bottom: 5px;
+  margin: 0;
+  padding-left: 0.16em; /* balances the tracking after the last letter, so the name centres */
+  font-family: "Bungee", Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: #3b3133;
+}
+/* The focused god's name, from the keyboard: a cartouche, 2px off the carving.
+   It fits inside the step, and inside the 12px the names keep between them. */
+.oly-ins.is-focus {
+  outline: 2px solid #3b3133;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Two plain antae close the frieze. */
+.oly-anta {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  bottom: var(--oly-tread);
+  width: 12px;
+  background: repeating-linear-gradient(90deg, #1d1718 0 2px, #171213 2px 3px);
+}
+.oly-anta.is-l {
+  left: 0;
+  box-shadow: 1px 0 0 rgb(0 0 0 / 0.5);
+}
+.oly-anta.is-r {
+  right: 0;
+  box-shadow: -1px 0 0 rgb(0 0 0 / 0.5);
+}
+
+/* The medallions' tesserae's canvas, over the piers: floor.ts draws on it. */
+.oly-mfx {
+  position: absolute;
+  z-index: 7;
+  left: 0;
+  bottom: var(--oly-tread);
+  display: block;
+  width: 100%;
+  height: 104px;
+}
+/* The pool: a waiting god's medallion, its row's cameo in a rim of the
+   stylobate's ivory, hung from a peg in the names' ink at the lane's end.
+   floor.ts places it and says how far it shows. It takes no pointer yet. */
+.oly-medal {
+  position: absolute;
+  z-index: 6;
+  left: 0;
+  top: 0;
+  width: 17px;
+  height: 22px;
+}
+.oly-medal::before {
+  content: "";
+  position: absolute;
+  left: 7.5px;
+  top: -2px;
+  width: 2px;
+  height: 2px;
+  background: #3b3133;
+}
+.oly-medal-rim {
+  position: absolute;
+  inset: 0;
+  border: 1px solid #d2c9bf;
+  border-radius: 50%;
+}
+.oly-medal img {
+  display: block;
+  width: 15px;
+  height: 20px;
+}
+/* A failed one: its cameo dimmed and the crack across it. floor.ts writes each
+   part way, frame by frame; these are the two whole. */
+.oly-medal.is-dimmed img {
+  filter: grayscale(0.6) brightness(0.66) contrast(0.92);
+}
+.oly-medal-crack {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  opacity: 0;
+}
+.oly-medal.is-cracked .oly-medal-crack {
+  opacity: 1;
+}
+/* In the gods' toolbar: its ring, from the keyboard, is floor.ts's to show. */
+.oly-medal {
+  pointer-events: auto;
+}
+.oly-medal.is-startable {
+  cursor: pointer;
+}
+.oly-medal:focus {
+  outline: none;
+}
+.oly-medal.is-focus {
+  outline: 2px solid #e9e2da;
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+
+/* The card: one card, over the god the pointer or the keyboard is on. It
+   stands above the lane, which clips, so it is in a frame of its own before
+   the lane: no height, the lane's width. floor.ts gives it its left, its foot
+   (--oly-ty, in the lane) and its caret; OlympusLane.tsx fills it from the
+   god's record, as its row is filled. */
+.oly-card-anchor {
+  position: relative;
+  display: flow-root; /* so the lane's margin stays under it */
+  height: 0;
+  margin: 0 var(--kleio-gutter);
+}
+.oly-card {
+  --oly-agent: #7aa8b9;
+  --oly-live: #cc4454;
+  position: absolute;
+  z-index: 3;
+  left: 1px; /* the lane's rule */
+  /* Its foot, from the lane's inner top: under the lane's 8px margin and its rule. */
+  bottom: calc(-9px - var(--oly-ty, 0px));
+  display: none;
+  box-sizing: border-box;
+  width: 272px;
+  padding: 11px 13px 12px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  box-shadow: 0 1px 0 rgb(0 0 0 / 0.55);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--kleio-text-2);
+}
+.oly-card.is-shown {
+  display: block;
+}
+.oly-card::after {
+  content: "";
+  position: absolute;
+  left: var(--oly-caret, 28px);
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-right: 1px solid var(--kleio-rule-strong);
+  border-bottom: 1px solid var(--kleio-rule-strong);
+  background: var(--surface-2);
+  transform: rotate(45deg);
+}
+/* Its lines sit close, as the mockup draws them: only the rule over what it is doing parts them. */
+.oly-card p,
+.oly-card dl,
+.oly-card dd {
+  margin: 0;
+}
+.oly-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+/* The god's name as its row has it. */
+.oly-card-god {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--oly-agent);
+}
+/* Its state: a crimson dot at work, the row's check when done, a muted dot
+   when it failed or was stopped. */
+.oly-card-state {
+  margin-left: auto;
+  color: var(--kleio-ink);
+}
+.oly-card-state::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--oly-live);
+  vertical-align: 1px;
+}
+.oly-card-state.is-done::before {
+  content: none;
+}
+.oly-card-state:is(.is-fail, .is-stop) {
+  color: var(--kleio-text-2);
+}
+.oly-card-state:is(.is-fail, .is-stop)::before {
+  background: var(--kleio-muted);
+}
+.oly-card-tick {
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  vertical-align: -1px;
+  fill: none;
+  stroke: var(--kleio-done);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* A brief's first line and a report's are as long as they like: three lines each. */
+.oly-card-task,
+.oly-card-now {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.oly-card-task {
+  font-size: 13.5px;
+  color: var(--kleio-ink);
+}
+.oly-card-now {
+  padding-top: 8px;
+  border-top: 1px solid var(--kleio-rule);
+}
+/* A long code chip may break anywhere rather than run out of the card. */
+.oly-card code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.055);
+  font-family: var(--mono);
+  font-size: 0.85em;
+  color: var(--kleio-text-2);
+  overflow-wrap: anywhere;
+}
+.oly-card-now code {
+  font-size: 11.5px;
+}
+.oly-card-stats {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: start;
+  gap: 0 22px;
+}
+.oly-card-stats dt {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--kleio-muted);
+}
+.oly-card-stats dd {
+  font-size: 13px;
+  color: var(--kleio-ink);
+  font-variant-numeric: tabular-nums;
+}

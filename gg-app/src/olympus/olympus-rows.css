@@ -1,0 +1,138 @@
+/* Olympus, part 1: the subagents of a turn in the desktop transcript. One row
+   each: its god's cameo in the gutter, the god's name and the task in slate
+   teal, then its state, what it is doing now or how it ended, and its time.
+   Drawn only on the desktop (TranscriptRow.tsx); the iPhone keeps the feed.
+   Nothing here moves: a row's state is its rim, its cameo and its words. */
+.oly-rows {
+  /* Slate teal, the subagents' own: 6.9:1 or more where the rows sit. */
+  --oly-agent: #7aa8b9;
+  /* The crimson of a rim at work, lifted to hold 3:1 on the transcript. */
+  --oly-live: #cc4454;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--sans);
+}
+.oly-row {
+  position: relative;
+  min-height: 42px;
+  padding-left: 46px;
+}
+.oly-row + .oly-row {
+  margin-top: 12px;
+}
+.oly-mark {
+  position: absolute;
+  left: 0;
+  top: 1px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 40px;
+}
+
+/* A brief's first line and a report's are as long as they like: one line each. */
+.oly-line {
+  margin: 0;
+  overflow: hidden;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--oly-agent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oly-god {
+  margin-right: 9px;
+  font-size: 11.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+/* The state and the time always show; what lies between them gives way. */
+.oly-meta {
+  display: flex;
+  align-items: baseline;
+  margin: 1px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+}
+.oly-state,
+.oly-when {
+  flex: none;
+}
+.oly-now {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.oly-row.is-run .oly-state {
+  color: var(--kleio-ink);
+}
+.oly-row.is-fail .oly-meta {
+  color: var(--kleio-text-2);
+}
+.oly-check {
+  flex: none;
+  align-self: center;
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  fill: none;
+  stroke: var(--kleio-done);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.oly-rows code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.055);
+  font-family: var(--mono);
+  font-size: 0.85em;
+  color: var(--kleio-text-2);
+}
+.oly-meta code {
+  font-size: 11.5px;
+}
+
+/* The gutter mark: the god's cameo, small, with its rim. */
+.oly-cameo {
+  position: relative;
+  display: block;
+  width: 24px;
+  height: 32px;
+}
+.oly-cameo img {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.oly-rim {
+  position: absolute;
+  inset: -3px;
+  border: 1px solid rgb(211 201 202 / 0.55);
+  border-radius: 50%;
+}
+.oly-crack {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.oly-row.is-run .oly-rim {
+  border: 1.5px solid var(--oly-live);
+}
+.oly-row.is-done .oly-rim {
+  border-color: var(--kleio-text-2);
+}
+/* Failed and stopped both dim; only a failure cracks. */
+.oly-row:is(.is-fail, .is-stop) .oly-cameo img {
+  filter: grayscale(0.6) brightness(0.58) contrast(0.92);
+}
+.oly-row:is(.is-fail, .is-stop) .oly-rim {
+  border-color: rgb(166 156 157 / 0.4);
+}

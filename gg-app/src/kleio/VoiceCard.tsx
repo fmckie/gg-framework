@@ -20,10 +20,10 @@ import { StepBadge, type StepMark } from "./StepBadge";
 import { VoiceGuide } from "./VoiceGuide";
 import { setVoiceReady, talkToKleio } from "./VoiceMode";
 
-const OPENAI_KEYS_URL = "https://platform.openai.com/api-keys";
+export const OPENAI_KEYS_URL = "https://platform.openai.com/api-keys";
 
 /** GPT-Live's voices, as the picker names them; marin and cedar sound the most natural. */
-const VOICE_LABELS: Record<string, string> = {
+export const VOICE_LABELS: Record<string, string> = {
   marin: "Marin (natural, recommended)",
   cedar: "Cedar (natural)",
   vesper: "Vesper (British)",
@@ -48,7 +48,7 @@ const VOICE_LABELS: Record<string, string> = {
   verse: "Verse",
 };
 
-function keyError(e: unknown): string {
+export function keyError(e: unknown): string {
   if (e instanceof KleioApiError) {
     if (e.message === "bad_key")
       return "OpenAI didn't accept that key. Check you copied all of it.";

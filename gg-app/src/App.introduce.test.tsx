@@ -5,12 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentState, HistoryEntry, RestoreTarget } from "./agent";
 import { INTRODUCE_LABEL, INTRODUCE_PROMPT } from "./kleio/introduce";
 
-// Setup, standing in: one button that does what the Brain card's Introduce
+// Settings' Kleio page, standing in: one button that does what its Introduce
 // yourself does once it knows there's a model, and says why if that fails.
-vi.mock("./kleio/SetupPage", async () => {
+vi.mock("./kleio/KleioPage", async () => {
   const { useState } = await import("react");
   return {
-    SetupPage: ({ onIntroduce }: { onIntroduce: () => Promise<void> }) => {
+    KleioPage: ({ onIntroduce }: { onIntroduce: () => Promise<void> }) => {
       const [error, setError] = useState<string | null>(null);
       const start = (): void => {
         onIntroduce().catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
@@ -26,6 +26,9 @@ vi.mock("./kleio/SetupPage", async () => {
     },
   };
 });
+
+// Overview, which Settings opens on: covered by its own tests.
+vi.mock("./kleio/OverviewPage", () => ({ OverviewPage: () => <p>overview page</p> }));
 
 // Install native mocks before importing the real app. Keep its module loading in
 // collection, outside the hook timeout: cold Windows imports can exceed 10s.
@@ -46,7 +49,7 @@ const STATE: AgentState = {
 const GREETING = "Hello, I'm Kleio. What should I call you?";
 
 beforeEach(() => {
-  // A fresh device: Setup opens by itself.
+  // A fresh device: Settings opens by itself, on Overview.
   localStorage.clear();
   vi.stubGlobal("matchMedia", (media: string) => ({
     matches: false,
@@ -69,7 +72,7 @@ afterEach(() => {
 });
 
 /**
- * The app against a ready agent. With no `restore` it opens on Setup, as a new
+ * The app against a ready agent. With no `restore` it opens on Settings, as a new
  * device does; `selects` and `sends` record `select_project` and `agent_prompt`.
  */
 function setup({
@@ -120,12 +123,8 @@ function setup({
 
 async function startIntroduction(): Promise<void> {
   // Settings is its own chunk: allow for a cold import under a full run.
-  const start = await screen.findByRole(
-    "button",
-    { name: "Start the introduction" },
-    { timeout: 5000 },
-  );
-  fireEvent.click(start);
+  fireEvent.click(await screen.findByRole("tab", { name: "Kleio" }, { timeout: 5000 }));
+  fireEvent.click(await screen.findByRole("button", { name: "Start the introduction" }));
 }
 
 describe("Introduce yourself", () => {

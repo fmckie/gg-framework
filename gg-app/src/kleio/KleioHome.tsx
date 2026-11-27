@@ -6,8 +6,10 @@ import { useEffect, useState } from "react";
 import {
   CirclesThreeIcon,
   CodeIcon,
+  FilmSlateIcon,
   GearSixIcon,
   SparkleIcon,
+  TargetIcon,
   WaveformIcon,
 } from "@phosphor-icons/react";
 import { getVersion } from "@tauri-apps/api/app";
@@ -31,6 +33,8 @@ interface Props {
   onChat: () => void;
   /** Coding projects on the Mac mini. */
   onCode: () => void;
+  /** Motion: the video studio, working in the host's projects folder. */
+  onMotion: () => void;
   /** Goals: long-running objectives the coordinator splits among workers. */
   onGoals: () => void;
   /** Kleio's specialists ("Blobs" in the code and on the host). Apps live in Settings. */
@@ -42,6 +46,7 @@ interface Props {
 export function KleioHome({
   onChat,
   onCode,
+  onMotion,
   onGoals,
   onBlobs,
   onSettings,
@@ -116,8 +121,9 @@ export function KleioHome({
     needModel();
   }
 
-  function openCode(): void {
-    if (codeReady) return onCode();
+  // Code and Motion both work in the host's projects folder.
+  function openInFolder(open: () => void): void {
+    if (codeReady) return open();
     if (!ready?.model) return needModel();
     toast("Set a projects folder on your host first.", "warning");
     onSettings("general");
@@ -160,7 +166,7 @@ export function KleioHome({
       <div className="home-actions">
         <button
           type="button"
-          className={`btn btn-primary home-action${modelReady ? "" : " is-dimmed"}`}
+          className={`kleio-cloisonne home-action${modelReady ? "" : " is-dimmed"}`}
           aria-disabled={modelReady ? undefined : true}
           onClick={openChat}
         >
@@ -169,37 +175,61 @@ export function KleioHome({
         </button>
         <button
           type="button"
-          className={`btn btn-ghost home-action${codeReady ? "" : " is-dimmed"}`}
+          className={`kleio-cloisonne home-action${codeReady ? "" : " is-dimmed"}`}
           aria-disabled={codeReady ? undefined : true}
-          onClick={openCode}
+          onClick={() => openInFolder(onCode)}
         >
           <CodeIcon size={18} weight="bold" aria-hidden="true" />
           Code
         </button>
-        <button type="button" className="btn btn-ghost home-action" onClick={onGoals}>
+        <button
+          type="button"
+          className={`kleio-cloisonne home-action${codeReady ? "" : " is-dimmed"}`}
+          aria-disabled={codeReady ? undefined : true}
+          onClick={() => openInFolder(onMotion)}
+        >
+          <FilmSlateIcon size={18} weight="bold" aria-hidden="true" />
+          Motion
+        </button>
+        <button type="button" className="kleio-cloisonne home-action" onClick={onGoals}>
+          <TargetIcon size={18} weight="bold" aria-hidden="true" />
           Goals
         </button>
-        <button type="button" className="btn btn-ghost home-action" onClick={onBlobs}>
+        <button
+          type="button"
+          className="kleio-cloisonne home-action"
+          aria-keyshortcuts="Meta+Shift+L"
+          onClick={onBlobs}
+        >
           <CirclesThreeIcon size={18} weight="bold" aria-hidden="true" />
           Specialists
+          <kbd className="home-kbd" aria-hidden="true">
+            ⌘⇧L
+          </kbd>
+        </button>
+      </div>
+      <div className="home-quiet">
+        <button
+          type="button"
+          className="kleio-cloisonne is-small home-brief"
+          aria-keyshortcuts="Meta+Shift+B"
+          title={
+            voiceReady
+              ? "Talk to Kleio: ask what's happening, or plan something out (⌘⇧B)"
+              : "Hear what needs you, what finished and what's still working (⌘⇧B)"
+          }
+          onClick={() => void talkToKleio()}
+        >
+          <WaveformIcon size={16} weight="bold" aria-hidden="true" />
+          {voiceReady ? "Talk to Kleio" : "Brief me"}
+          <kbd className="home-kbd" aria-hidden="true">
+            ⌘⇧B
+          </kbd>
         </button>
       </div>
       <button
         type="button"
-        className="home-brief"
-        title={
-          voiceReady
-            ? "Talk to Kleio: ask what's happening, or plan something out (⌘⇧B)"
-            : "Hear what needs you, what finished and what's still working (⌘⇧B)"
-        }
-        onClick={() => void talkToKleio()}
-      >
-        <WaveformIcon size={16} weight="bold" aria-hidden="true" />
-        {voiceReady ? "Talk to Kleio" : "Brief me"}
-      </button>
-      <button
-        type="button"
-        className="icon-circle home-settings"
+        className="home-settings"
         aria-label="Settings"
         title="Settings"
         onClick={() => onSettings()}

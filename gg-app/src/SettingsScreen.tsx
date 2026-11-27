@@ -10,22 +10,25 @@ import {
   SyringeIcon,
 } from "@phosphor-icons/react";
 import { BackButton } from "./BackButton";
-import { EmbeddedModal } from "./modal-embed";
-import { SettingsModal } from "./SettingsModal";
-import { LoginScreen } from "./LoginScreen";
-import { McpModal } from "./McpModal";
-import { SteroidsModal } from "./SteroidsModal";
 import { ConnectionPage } from "./kleio/LazyConnectionPage";
 import { AppsPage } from "./kleio/LazyAppsPage";
-import { AboutPage } from "./kleio/AboutPage";
-import { SetupPage } from "./kleio/SetupPage";
+import { KleioSettingsPage, kleioSettingsTabs } from "./kleio/settingsLayout";
 import { SettingsTabBar, type SettingsTab } from "./SettingsTabBar";
 import { SettingsHeaderProvider } from "./settings-header";
 import { waitForReady, getSteroidsStatus, onSteroidsChange, type SteroidsStatus } from "./agent";
-import { toast } from "./toast";
+import { isPhone } from "./platform";
 
+// kleio: "kleio" is the desktop's ninth tab (kleio/settingsLayout.tsx).
 export type SettingsTabId =
-  "setup" | "general" | "providers" | "connection" | "apps" | "mcp" | "steroids" | "about";
+  | "setup"
+  | "kleio"
+  | "general"
+  | "providers"
+  | "connection"
+  | "apps"
+  | "mcp"
+  | "steroids"
+  | "about";
 
 interface Props {
   onClose: () => void;
@@ -66,7 +69,7 @@ export function SettingsScreen({
     return onSteroidsChange(setSteroids);
   }, []);
 
-  const tabs: SettingsTab<SettingsTabId>[] = [
+  const allTabs: SettingsTab<SettingsTabId>[] = [
     // kleio: first-run setup; a new device opens here once after pairing.
     { id: "setup", label: "Setup", icon: ListChecksIcon },
     { id: "general", label: "General", icon: GearSixIcon },
@@ -88,10 +91,9 @@ export function SettingsScreen({
     { id: "about", label: "About", icon: InfoIcon },
   ];
 
+  // kleio: the desktop's labels, its Kleio tab and its Steroids dot.
+  const tabs = kleioSettingsTabs(allTabs, steroids);
   const current = tabs.find((t) => t.id === tab);
-
-  // Pages stay put after their own Save/Close (the Back button leaves).
-  const stay = (): void => {};
 
   function selectTab(id: SettingsTabId): void {
     setSwitched(true);
@@ -119,34 +121,30 @@ export function SettingsScreen({
       >
         <SettingsHeaderProvider slots={{ status: statusSlot, actions: actionsSlot }}>
           <div className={`settings-page ${switched ? "is-switching" : "is-entering"}`}>
-            {tab === "setup" && <SetupPage onOpenTab={selectTab} onIntroduce={onIntroduce} />}
-            {tab === "general" && (
-              <EmbeddedModal>
-                <SettingsModal
-                  onClose={stay}
-                  onSaved={() => toast("Project folder saved.", "success")}
-                />
-              </EmbeddedModal>
+            {/* kleio: every page but these two is picked per device (settingsLayout.tsx). */}
+            {tab !== "connection" && tab !== "apps" && (
+              <KleioSettingsPage
+                tab={tab}
+                onOpenTab={selectTab}
+                onIntroduce={onIntroduce}
+                steroids={steroids}
+                onSteroids={setSteroids}
+              />
             )}
-            {tab === "providers" && <LoginScreen />}
             {tab === "connection" && <ConnectionPage />}
             {tab === "apps" && <AppsPage />}
-            {tab === "mcp" && (
-              <EmbeddedModal>
-                <McpModal onClose={stay} />
-              </EmbeddedModal>
-            )}
-            {tab === "steroids" && (
-              <EmbeddedModal>
-                <SteroidsModal status={steroids} onStatus={setSteroids} onClose={stay} />
-              </EmbeddedModal>
-            )}
-            {tab === "about" && <AboutPage />}
           </div>
         </SettingsHeaderProvider>
       </div>
 
-      <SettingsTabBar tabs={tabs} selected={tab} onSelect={selectTab} panelId={PANEL_ID} />
+      <SettingsTabBar
+        tabs={tabs}
+        selected={tab}
+        onSelect={selectTab}
+        panelId={PANEL_ID}
+        // kleio: the desktop names the icon-only tabs on hover; the phone has no hover.
+        tooltips={!isPhone()}
+      />
     </div>
   );
 }

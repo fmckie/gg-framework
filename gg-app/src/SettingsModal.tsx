@@ -91,7 +91,7 @@ export function SettingsModal({ onClose, onSaved }: Props): React.ReactElement {
       <div className="settings-cols">
         <div className="settings-col">
           {permissions?.applicable && (
-            <SettingsSection title="Permissions" description="Full Disk Access for GG Coder.">
+            <SettingsSection title="Permissions" description="Full Disk Access for Kleio.">
               <div className="modal-row">
                 <button
                   className="modal-btn"
