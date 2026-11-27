@@ -167,8 +167,11 @@ html.platform-ios .settings-tab-dock {
 }
 
 /* Three 132px pills don't fit side by side in 354px: stack them into one
-   column of full-width pills — bigger targets, same order, same colours. */
-html.platform-ios .home-actions {
+   column of full-width pills — bigger targets, same order, same colours.
+   Kleio's Home names its own row too: the desktop's plate grid there is
+   shared, and the phone draws pills, not plates (KleioHome.tsx). */
+html.platform-ios .home-actions,
+html.platform-ios .kleio-home > .home-actions {
   display: flex;
   flex-direction: column;
   align-items: stretch;

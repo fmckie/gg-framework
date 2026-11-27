@@ -392,3 +392,30 @@ describe("on the iPhone, a Code session", () => {
     expect(phoneStyle(app, "background-color")?.value).toBe("#161213");
   });
 });
+
+// The desktop's Home lays its plates on a six-column grid, a rule shared with
+// the iPhone, which draws pills instead (KleioHome.tsx): the grid squeezed the
+// phone's five pills into one row (Nov 2026).
+describe("on the iPhone, Kleio's Home", () => {
+  beforeEach(() => {
+    document.documentElement.classList.add("platform-ios");
+    document.body.innerHTML = `
+      <div class="home kleio-home">
+        <div class="home-actions"><button class="kleio-cloisonne home-action">Chat</button></div>
+      </div>`;
+  });
+  afterEach(() => {
+    document.body.innerHTML = "";
+    document.documentElement.classList.remove("platform-ios");
+  });
+
+  it("stacks its pills in one column, over the desktop's plate grid", () => {
+    const row = document.querySelector(".home-actions");
+    if (!row) throw new Error("no .home-actions");
+    expect(phoneStyle(row, "display")).toMatchObject({
+      value: "flex",
+      sheet: "./kleio-phone.css",
+    });
+    expect(phoneStyle(row, "flex-direction")).toMatchObject({ value: "column" });
+  });
+});
