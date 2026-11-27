@@ -164,6 +164,7 @@ export function GoalPanel({
   runs = [],
   onPauseChange,
   onSaved,
+  onFinish,
 }: {
   goal: GoalStateInfo;
   /** Null while the goal is still being briefed: there is no Workers view yet. */
@@ -188,6 +189,8 @@ export function GoalPanel({
   onPauseChange?: (paused: boolean) => void;
   /** After the settings were saved, with what the sidecar stored. */
   onSaved?: (next: { context: GoalContextItem[]; instructions: string }) => void;
+  /** The finish shown over the Workers view, and null when it comes down. */
+  onFinish?: (finish: GoalFinishScore | null) => void;
 }): React.ReactElement {
   const modelId = useId();
   const current = goal.critterModel ?? "";
@@ -298,6 +301,12 @@ export function GoalPanel({
 
   const shownFinish =
     view === "workers" && !askNotice && finish?.goalId === goal.id ? finish : null;
+  // The Workers view ends the stage on it and sets up its stele.
+  useEffect(() => {
+    if (!onFinish) return;
+    onFinish(shownFinish);
+    return () => onFinish(null);
+  }, [onFinish, shownFinish]);
 
   const phone = isPhone();
   const title = (

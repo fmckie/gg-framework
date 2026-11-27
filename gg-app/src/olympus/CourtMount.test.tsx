@@ -54,4 +54,18 @@ describe("where the courtyard goes in a goal's Workers view", () => {
     // The coordinator's hearth is there before any worker is.
     expect(court.querySelector(".oly-hearth")).not.toBeNull();
   });
+
+  it("hands the stage a finished stretch's laurel: the one who gives it comes for its god", async () => {
+    document.documentElement.classList.add("platform-macos");
+    const done: CourtAgent[] = [{ ...agents[0]!, status: "done" }];
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, value: 698 });
+    try {
+      const { container } = render(<CourtMount agents={done} hearth="finished" laurel="1:a" />);
+      await waitFor(() => expect(container.querySelector(".oly-herald")).not.toBeNull());
+      expect(container.querySelector<HTMLElement>(".oly-hearth")?.dataset.state).toBe("finished");
+      expect(container.querySelectorAll(".oly-cell")).toHaveLength(2);
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, "clientWidth");
+    }
+  });
 });

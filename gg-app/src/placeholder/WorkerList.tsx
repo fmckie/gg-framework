@@ -5,7 +5,10 @@ import type { CourtAgent, HearthState } from "../olympus/courtyard";
 import { agentTypeOf, godOf, type God } from "../olympus/gods";
 import { toolFamilyOf } from "../olympus/tool-family";
 import { isPhone } from "../platform";
+import { GoalStele } from "./GoalStele";
 import { StatusDot, type StatusTone } from "./StatusDot";
+import type { GoalFinish } from "./goal-finish";
+import { steleOf } from "./goal-stele";
 import {
   collectGoalAgents,
   collectWorkers,
@@ -74,19 +77,24 @@ export function courtAgents(
  * state label and what it is doing now. Shown in place of the chat once a goal
  * has started. On the desktop the courtyard stands over the rows (the hearth
  * is the coordinator, each worker a god), and the rows stay the record: a
- * row's cameo is its god's, and pointing at either marks the other.
+ * row's cameo is its god's, and pointing at either marks the other. While a
+ * finish stands, the stage ends on it (a steady flame, a laurel for the worker
+ * that did most) and its stele stands between the stage and the rows.
  */
 export function WorkerList({
   groups,
   running,
   liveTools,
   waitingOnUser,
+  finish = null,
 }: {
   /** Every sub-agent group in the transcript, oldest first. */
   groups: readonly WorkerGroup[];
   running: boolean;
   liveTools: readonly LiveToolEntry[];
   waitingOnUser: boolean;
+  /** The finish the goal's bar is showing, if one stands. */
+  finish?: GoalFinish | null;
 }): React.ReactElement {
   const workers = useMemo(() => collectWorkers(groups), [groups]);
   const agents = useMemo(
@@ -95,15 +103,33 @@ export function WorkerList({
   );
   const gods = useMemo(() => workerGods(groups), [groups]);
   const court = useMemo(() => courtAgents(workers, gods), [workers, gods]);
-  const hearth: HearthState = waitingOnUser ? "waiting" : running ? "working" : "idle";
+  const desktop = !isPhone();
+  const stele = useMemo(
+    () => (desktop && finish ? steleOf(finish, groups, gods) : null),
+    [desktop, finish, groups, gods],
+  );
+  // A stretch that couldn't finish leaves the hearth in embers.
+  const hearth: HearthState = waitingOnUser
+    ? "waiting"
+    : running
+      ? "working"
+      : finish && finish.outcome !== "failed"
+        ? "finished"
+        : "idle";
   // The row the pointer is on, and the worker whose god it is on.
   const [pointed, setPointed] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
-  const desktop = !isPhone();
   return (
     <section className="placeholder-goals goal-workers" aria-label="Workers">
       <div className="placeholder-scroll">
-        <CourtMount agents={court} hearth={hearth} marked={pointed} onHover={setHovered} />
+        <CourtMount
+          agents={court}
+          hearth={hearth}
+          laurel={stele?.laurel ?? null}
+          marked={pointed}
+          onHover={setHovered}
+        />
+        {stele && <GoalStele key={stele.id} stele={stele} />}
         <ul className="placeholder-list">
           {agents.map((agent) => {
             const label = goalAgentStateLabel(agent);

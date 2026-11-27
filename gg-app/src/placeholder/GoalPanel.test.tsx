@@ -229,6 +229,54 @@ describe("GoalPanel", () => {
     }
   });
 
+  it("hands the finish it shows to the Workers view, and null when it comes down", async () => {
+    vi.useFakeTimers();
+    try {
+      const runs = [
+        {
+          goalId: GOAL.id,
+          startedAt: 1000,
+          endedAt: 5000,
+          fromItemId: 7,
+          turns: 4,
+          outputTokens: 900,
+          outcome: "done" as const,
+        },
+      ];
+      const onFinish = vi.fn();
+      const props = { ...base, goal: GOAL, runs, onFinish };
+      const { rerender, unmount } = render(<GoalPanel {...props} running />);
+      expect(onFinish).toHaveBeenLastCalledWith(null);
+      rerender(<GoalPanel {...props} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1600);
+      });
+      expect(onFinish).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: 5000, goalId: GOAL.id, outcome: "done", fromItemId: 7 }),
+      );
+      // Not over the chat: the card is only ever over the Workers view.
+      rerender(<GoalPanel {...props} view="chat" />);
+      expect(onFinish).toHaveBeenLastCalledWith(null);
+      expect(onFinish.mock.calls.filter(([finish]) => finish !== null)).toHaveLength(1);
+
+      // Closing the card takes the finale down with it.
+      const again = [...runs, { ...runs[0]!, startedAt: 6000, endedAt: 9000 }];
+      rerender(<GoalPanel {...props} runs={again} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1600);
+      });
+      expect(onFinish).toHaveBeenLastCalledWith(expect.objectContaining({ id: 9000 }));
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      expect(onFinish).toHaveBeenLastCalledWith(null);
+
+      // Leaving the goal leaves no finish behind.
+      onFinish.mockClear();
+      unmount();
+      expect(onFinish).toHaveBeenLastCalledWith(null);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 const PANEL = "html:not(.platform-ios) .app.app-session > .goal-panel";

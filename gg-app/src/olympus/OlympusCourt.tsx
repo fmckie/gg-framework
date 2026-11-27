@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { CAST, FRAME_URLS, POSE_URLS } from "./cast";
+import { CAST, CROWN_URLS, FRAME_URLS, POSE_URLS } from "./cast";
 import {
   createCourtyard,
   type CourtAgent,
@@ -20,6 +20,8 @@ export interface CourtStage extends Pick<CourtOptions, "width" | "reduced" | "fi
 export interface CourtProps {
   agents: readonly CourtAgent[];
   hearth: HearthState;
+  // The worker that did most of a finished stretch: its god is given the laurel.
+  laurel?: string | null;
   // The worker whose row the pointer is on: its god's name is marked.
   marked?: string | null;
   // The worker whose god the pointer is on, or nobody.
@@ -33,6 +35,7 @@ export interface CourtProps {
 export function OlympusCourt({
   agents,
   hearth,
+  laurel = null,
   marked = null,
   onHover,
   stage,
@@ -56,6 +59,7 @@ export function OlympusCourt({
       cast: CAST,
       poses: POSE_URLS,
       frames: FRAME_URLS,
+      crowns: CROWN_URLS,
       width,
       reduced,
       fidget,
@@ -85,8 +89,8 @@ export function OlympusCourt({
   }, []);
 
   useEffect(() => {
-    courtRef.current?.sync(agents, hearth);
-  }, [agents, hearth]);
+    courtRef.current?.sync(agents, hearth, laurel);
+  }, [agents, hearth, laurel]);
 
   useEffect(() => {
     courtRef.current?.mark(marked);

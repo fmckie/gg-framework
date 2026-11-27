@@ -5795,6 +5795,163 @@ html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-row.is-mar
   color: var(--kleio-lapis);
 }
 
+/* The stele (GoalStele.tsx), between the stage and the rows while a finish
+   stands: a finished stretch's account. A bounded panel under a cap of the
+   stylobate's marble (olympus-lane.css, its edge here in flat bands), the
+   outcome carved in its face as a god's name is. A line a worker, the one that
+   did most under a laurel in verdigris; a line carries its row's status, so
+   the rows' own rule (above) dims the cameo of a worker that failed or was
+   stopped. Last, the finish card's totals beside the way to copy the stele as
+   a picture. */
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele {
+  margin-bottom: 18px;
+  overflow: hidden;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-surface);
+  font-variant-numeric: tabular-nums;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-cap {
+  padding: 13px 14px 9px;
+  background: #c3b9af;
+  box-shadow:
+    inset 0 1px 0 #e9e2da,
+    inset 0 3px 0 #d2c9bf,
+    inset 0 4px 0 #aca298,
+    inset 0 -1px 0 #8f857c;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-title {
+  margin: 0;
+  color: #3b3133;
+  font:
+    12px/1 "Bungee",
+    Didot,
+    "Bodoni 72",
+    "Bodoni MT",
+    "Times New Roman",
+    serif;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-table :is(th, td) {
+  padding: 9px 14px 9px 0;
+  border-top: 1px solid var(--kleio-rule);
+  font-weight: 400;
+  text-align: left;
+  vertical-align: middle;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-table :is(th, td):first-child {
+  padding-left: 14px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-table thead th {
+  padding-block: 8px 7px;
+  border-top: 0;
+  color: var(--kleio-muted);
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* How it ended, its time and its tools each keep to one line; the tokens' readout wraps. */
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-table td:not(:last-child) {
+  white-space: nowrap;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-table td:last-child {
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-worker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele .goal-worker-cameo {
+  margin: -2px 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-who {
+  display: grid;
+  min-width: 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--kleio-ink);
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-mark {
+  flex: none;
+  fill: var(--kleio-done);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-laurel {
+  color: var(--kleio-done);
+  font-size: 12px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-none {
+  margin: 0;
+  padding: 14px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin: 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-totals > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-totals dt {
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-totals dd {
+  margin: 0;
+  color: var(--kleio-ink);
+  font: 500 14px/20px var(--sans);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-copy {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: 12px/1 var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-workers
+  .goal-stele-copy:is(:hover, :focus-visible) {
+  background: rgb(255 255 255 / 0.05);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-copy:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
 /* ── A Chat's title ── "Chats / session title" in the window's title row, in
    place of the folder and branch. One line: the row keeps its height. */
 html:not(.platform-ios) .app.app-session .chat-head-identity {

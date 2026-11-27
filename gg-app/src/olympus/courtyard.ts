@@ -49,7 +49,8 @@ import {
 import type { Sim, SimEvent } from "./sim";
 import type { ToolFamily } from "./tool-family";
 
-export type HearthState = "working" | "idle" | "waiting";
+// Finished: a stretch of the goal's work is over and came to something.
+export type HearthState = "working" | "idle" | "waiting" | "finished";
 
 // A worker, as its row has it.
 export interface CourtAgent {
@@ -67,6 +68,8 @@ export interface CourtOptions {
   readonly poses: Readonly<Record<GodId, Pictures>>;
   // Each god's second frames, by pose; a pose given none keeps its first.
   readonly frames?: Readonly<Partial<Record<GodId, Frames>>>;
+  // The crown's picture, for the god that gives one: without it no herald comes to a finish.
+  readonly crowns?: Readonly<Partial<Record<GodId, string>>>;
   // The stage's width inside its frame; the element's own unless given.
   readonly width?: () => number;
   // Whether the reader asks for less motion; the window's setting unless given.
@@ -98,14 +101,24 @@ export interface CourtPeek {
     readonly dim: number;
     readonly crack: number;
     readonly sealed: boolean;
+    // Whether it wears the laurel.
+    readonly laurel: boolean;
     readonly fidget: Shown | null;
   }[];
   // Workers with no place on the stage: their rows are all there is of them.
   readonly off: readonly string[];
+  // The one who crowns at a finish, if she is there: where, which way she faces, and whether her crown is up.
+  readonly herald: {
+    readonly x: number;
+    readonly dir: number;
+    readonly shown: number;
+    readonly crown: boolean;
+  } | null;
 }
 
 export interface Courtyard {
-  sync(agents: readonly CourtAgent[], hearth: HearthState): void;
+  // `laurel`: the worker that did most of a finished stretch, or nobody.
+  sync(agents: readonly CourtAgent[], hearth: HearthState, laurel?: string | null): void;
   resize(): void;
   // The worker whose row the pointer is on: its god's name is marked.
   mark(key: string | null): void;
@@ -168,6 +181,51 @@ const DIM = 900;
 const CRACK = 220;
 const HOVER_UP = 240; // the one who flies: up, as her pose cuts in
 const MOST_FAILED = 4;
+const LAUREL_AT = 300; // the laurel comes down on its head, as the seal does on its scroll
+// The one who crowns at a finish. She keeps her raised crown, and the last
+// god's own width, clear of the summit's last place on her side.
+const HERALD: GodId = "nike";
+const HERALD_CLEAR = 82;
+
+// The laurel, as a god facing right wears it: a spray from the knot at its
+// nape up to its brow, two leaves a node and one at the tip.
+const LAUREL = { w: 16, h: 10, box: "0 0 18 11" } as const;
+// Where it sits on each standing head: its middle from the head line, and its
+// top from the figure's (cast.json's top.stand), px.
+const BROW: Readonly<Record<GodId, readonly [number, number]>> = {
+  athena: [-1, 5],
+  herodotus: [-2, 3],
+  hermes: [-1, 1],
+  hephaestus: [-1, 4],
+  argus: [-1.5, 2.5],
+  themis: [-1, 3.5],
+  nike: [-0.5, 4],
+};
+function buildLaurel(): SVGElement {
+  const el = svg("svg", { class: "oly-laurel", viewBox: LAUREL.box });
+  const [x0, y0, x1, y1] = [2.5, 8.5, 15.5, 3.2];
+  const along = (Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI;
+  const leaf = (k: number, tilt: number): SVGElement => {
+    const deg = along + tilt;
+    const r = (deg * Math.PI) / 180;
+    const cx = (x0 + (x1 - x0) * k + 2.1 * Math.cos(r)).toFixed(2);
+    const cy = (y0 + (y1 - y0) * k + 2.1 * Math.sin(r)).toFixed(2);
+    return svg("ellipse", {
+      class: "oly-laurel-leaf",
+      cx,
+      cy,
+      rx: 2.5,
+      ry: 1.05,
+      transform: `rotate(${deg.toFixed(1)} ${cx} ${cy})`,
+    });
+  };
+  el.append(
+    svg("path", { class: "oly-laurel-tie", d: "M2.6 8.4L0.8 10.6M2.6 8.4L3.4 10.8" }),
+    ...[0.05, 0.3, 0.55, 0.8].flatMap((k) => [leaf(k, -32), leaf(k, 26)]),
+    leaf(0.92, -4),
+  );
+  return el;
+}
 
 const FLAME_SHAPES = [
   [
@@ -216,6 +274,9 @@ interface Vis {
   crack: number;
   sealed: boolean;
   press: number;
+  laurel: boolean;
+  wreath: number;
+  react: "crown" | null;
   fid: Shown;
   moving: boolean;
   wake: number;
@@ -233,12 +294,14 @@ interface Fig {
   readonly parts: Map<Pose, HTMLElement>;
   moved: HTMLElement | null;
   readonly sealEl: SVGElement;
+  readonly laurelEl: SVGElement;
   readonly label: HTMLElement;
   // The place it holds: where it stands, or where it is going.
   zone: ZoneId;
   slot: number;
-  // Where it last stood.
+  // Where it last stood; and the way it faces there, if not its slot's.
   spot: Spot;
+  readonly face: 1 | -1 | null;
   trip: Trip | null;
   restAt: number;
   // Where its work is done now; and whether it found no room there.
@@ -447,6 +510,10 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
 
   let hearth: HearthState = "idle";
   let hearthDrawn = "";
+  // The finale: on from when the hearth was told a stretch had finished, for
+  // as long as it is; and the worker that did most of it, if anyone.
+  let finale: { readonly at: number } | null = null;
+  let crowned: string | null = null;
   const flameAt = (now: number): number =>
     hearth === "working" && !reduced() ? FLAMES[Math.floor(now / FLAME) % FLAMES.length]! : 0;
   // The hearth as its frame has it: when its flame will next change shape, if it burns.
@@ -509,7 +576,7 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
     level: plan.zones[zone].level,
     x: plan.zones[zone].slots[slot]!.x,
   });
-  const faceOf = (fig: Fig): 1 | -1 => plan.zones[fig.zone].slots[fig.slot]?.face ?? 1;
+  const faceOf = (fig: Fig): 1 | -1 => fig.face ?? plan.zones[fig.zone].slots[fig.slot]?.face ?? 1;
   const liftOf = (fig: Fig): number =>
     (fig.c.lift as Readonly<Partial<Record<Pose, number>>>)[fig.pose] ?? 0;
 
@@ -535,17 +602,21 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
     return slot;
   }
 
-  function makeFig(a: CourtAgent, zone: ZoneId, slot: number, t: number): Fig {
+  // `at`: the herald's own spot. She is no worker: she holds no slot, no name
+  // is carved under her, and the pointer finds nobody on her.
+  function makeFig(a: CourtAgent, zone: ZoneId, slot: number, t: number, at?: Spot): Fig {
     const c = CAST.gods[a.god];
-    const el = html("div", "oly-cell");
+    const el = html("div", at ? "oly-cell oly-herald" : "oly-cell");
     el.dataset.god = a.god;
-    el.dataset.key = a.key;
+    if (!at) el.dataset.key = a.key;
     el.style.setProperty("--oly-ex", `${c.seal[0]}px`);
     el.style.setProperty("--oly-ey", `${c.seal[1]}px`);
+    el.style.setProperty("--oly-lx", `${HEAD + BROW[a.god][0] - LAUREL.w / 2}px`);
+    el.style.setProperty("--oly-ly", `${c.top.stand + BROW[a.god][1]}px`);
     const figEl = html("div", "oly-fig");
     const posesEl = html("div", "oly-poses");
     const urls = opts.poses[a.god];
-    const picture = (pose: Pose, url: string): HTMLImageElement => {
+    const picture = (pose: Pose | "crown", url: string): HTMLImageElement => {
       const img = document.createElement("img");
       img.className = `oly-pose oly-p-${pose}`;
       img.src = url;
@@ -561,12 +632,12 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
     const parts = new Map<Pose, HTMLElement>();
     const px = (points: readonly (readonly [number, number])[]): string =>
       points.map(([x, y]) => `${x}px ${y}px`).join(",");
-    for (const [pose, at] of Object.entries(c.at) as [Skill, readonly [number, number]][]) {
+    for (const [pose, box] of Object.entries(c.at) as [Skill, readonly [number, number]][]) {
       const url = urls[pose];
       if (!url) continue;
       const img = picture(pose, url);
-      img.style.left = `${at[0]}px`;
-      img.style.width = `${at[1]}px`;
+      img.style.left = `${box[0]}px`;
+      img.style.width = `${box[1]}px`;
       if (!fidgeting) continue;
       const second = c.frames[pose] && opts.frames?.[a.god]?.[pose];
       if (second) {
@@ -578,7 +649,7 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
       }
       const cut = c.parts[pose];
       if (cut) {
-        const [w, h] = [at[1], CAST.cell.h];
+        const [w, h] = [box[1], CAST.cell.h];
         img.style.setProperty(
           "--oly-hole",
           `polygon(evenodd,0px 0px,${w}px 0px,${w}px ${h}px,0px ${h}px,0px 0px,${px(cut.hole)},${px(cut.hole.slice(0, 1))})`,
@@ -596,6 +667,14 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
         parts.set(pose, part);
       }
     }
+    // The herald's crown, as the lane builds it: shown in place of her pose while it is raised.
+    const crown = at && c.rx.crown;
+    const crownUrl = opts.crowns?.[a.god];
+    if (crown && crownUrl) {
+      const img = picture("crown", crownUrl);
+      img.style.left = `${crown.at[0]}px`;
+      img.style.width = `${crown.at[1]}px`;
+    }
     const sealEl = svg("svg", { class: "oly-seal", viewBox: CAST.seal.viewBox });
     grow(sealEl, CAST.seal.nodes);
     const fissure = svg("svg", {
@@ -603,18 +682,21 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
       viewBox: `0 0 ${CAST.cell.w} ${CAST.cell.h}`,
     });
     grow(fissure, c.fissure);
-    figEl.append(posesEl, sealEl, fissure);
+    const laurelEl = buildLaurel();
+    figEl.append(posesEl, sealEl, fissure, laurelEl);
     el.append(figEl);
     // The worker's own name: its row's.
     const label = html("p", "oly-ins");
     label.textContent = a.label;
-    label.classList.toggle("is-marked", marked === a.key);
-    for (const node of [el, label]) {
-      node.addEventListener("pointerenter", () => opts.onHover?.(a.key));
-      node.addEventListener("pointerleave", () => opts.onHover?.(null));
-    }
     godsEl.append(el);
-    namesEl.append(label);
+    if (!at) {
+      label.classList.toggle("is-marked", marked === a.key);
+      for (const node of [el, label]) {
+        node.addEventListener("pointerenter", () => opts.onHover?.(a.key));
+        node.addEventListener("pointerleave", () => opts.onHover?.(null));
+      }
+      namesEl.append(label);
+    }
     return {
       key: a.key,
       gid: a.god,
@@ -627,10 +709,13 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
       parts,
       moved: null,
       sealEl,
+      laurelEl,
       label,
       zone,
       slot,
-      spot: spotOf(zone, slot),
+      spot: at ?? spotOf(zone, slot),
+      // She faces the temple, and whoever she crowns there.
+      face: at ? -1 : null,
       trip: null,
       restAt: t,
       want: zone,
@@ -823,6 +908,66 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
     }
     retrying = false;
     relabel();
+    attend(t);
+  }
+
+  // ───────── the finale: a laurel, and the one who gives it ─────────
+  let herald: Fig | null = null;
+
+  // Where she stands: the summit's free right end, on a stage wide enough to
+  // keep her crown clear of the last place there.
+  function heraldSpot(): Spot | null {
+    if (!CAST.gods[HERALD].rx.crown || !opts.crowns?.[HERALD]) return null;
+    const x = plan.width - COURT.edge;
+    const last = Math.max(plan.hearth, ...plan.zones.temple.slots.map((slot) => slot.x));
+    return x - last >= HERALD_CLEAR ? { level: 2, x } : null;
+  }
+
+  // She is there for a finale whose crowned god is on the stage, and goes with either.
+  function attend(t: number): void {
+    const spot = finale && crowned !== null && figs.has(crowned) ? heraldSpot() : null;
+    if (!spot) {
+      const fig = herald;
+      herald = null;
+      if (!fig) return;
+      if (reduced()) return drop(fig);
+      fig.goneAt = t;
+      leaving.add(fig);
+      sim.at(t + FADE, () => drop(fig));
+      return;
+    }
+    if (herald) {
+      // Another width: she is put again by a cut, as everyone is.
+      herald.spot = spot;
+      return;
+    }
+    const she: CourtAgent = { key: "", god: HERALD, label: "", status: "idle", family: "think" };
+    herald = makeFig(she, "temple", -1, t, spot);
+    herald.showAt = reduced() ? -Infinity : t;
+  }
+
+  // The finale's moments, once the crowned god stands sealed in the temple:
+  // when the laurel comes down on it, and the beats the herald's crown is up
+  // for, if she stood there in time. Asked for less motion, the laurel is
+  // simply on and nobody raises anything.
+  interface Finale {
+    readonly fig: Fig;
+    readonly laurel: number;
+    readonly raise: readonly [number, number] | null;
+  }
+  function finaleOf(): Finale | null {
+    if (!finale || crowned === null) return null;
+    const fig = figs.get(crowned);
+    if (!fig || fig.sealAt === null || fig.zone !== "temple" || fig.trip) return null;
+    if (reduced()) return { fig, laurel: -Infinity, raise: null };
+    const from = Math.max(finale.at, fig.sealAt + SEAL_AT + PRESS, fig.showAt + FADE) + FADE;
+    const crown = herald?.c.rx.crown;
+    const up = herald && crown && herald.showAt + FADE <= from;
+    return {
+      fig,
+      laurel: from + LAUREL_AT,
+      raise: up ? [from, from + crown.beats * herald!.c.step] : null,
+    };
   }
 
   // A name has the room its neighbours on its terrace leave it.
@@ -850,8 +995,16 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
     }
   }
 
-  function reconcile(agents: readonly CourtAgent[], state: HearthState): void {
+  function reconcile(
+    agents: readonly CourtAgent[],
+    state: HearthState,
+    laurel: string | null,
+  ): void {
     const t = sim.now();
+    // The finale begins as the hearth is told of a finish, and again for another's laurel.
+    if (state !== "finished") finale = null;
+    else if (!finale || laurel !== crowned) finale = { at: t };
+    crowned = finale ? laurel : null;
     hearth = state;
     const first = !opened;
     opened = true;
@@ -924,7 +1077,7 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
     write(value);
   }
 
-  function sample(fig: Fig, now: number): Vis {
+  function sample(fig: Fig, now: number, fin: Finale | null = finaleOf()): Vis {
     const quiet = reduced();
     // One fading from the stage may hold a slot the stage no longer has.
     const held = plan.zones[fig.zone].slots[fig.slot];
@@ -942,6 +1095,9 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
       crack: 0,
       sealed: false,
       press: 1,
+      laurel: false,
+      wreath: 1,
+      react: null,
       fid: STILL,
       moving: false,
       wake: Infinity,
@@ -1003,6 +1159,26 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
       if (!v.sealed) v.wake = Math.min(v.wake, fig.sealAt + SEAL_AT);
       else if (v.press > 1) v.moving = true;
     }
+    // The laurel, for the one that did most: it waits until its god stands sealed in the temple.
+    if (fin && fig === fin.fig && fig.goneAt === null) {
+      const u = now - fin.laurel;
+      v.laurel = u >= 0;
+      if (v.laurel) v.wreath = 1 + 0.7 * (1 - clamp01(u / PRESS));
+      if (!v.laurel) v.wake = Math.min(v.wake, fin.laurel);
+      else if (v.wreath > 1) v.moving = true;
+    }
+    // While the herald's crown is up, the others sealed in the temple turn to the crowned one.
+    const raise = fin?.raise;
+    const turns = fig !== herald && fig !== fin?.fig && v.sealed && !trip && fig.zone === "temple";
+    if (raise && fig.goneAt === null && (fig === herald || turns)) {
+      const [from, to] = raise;
+      if (now < from) v.wake = Math.min(v.wake, from);
+      else if (now < to) {
+        v.wake = Math.min(v.wake, to);
+        if (fig === herald) v.react = "crown";
+        else v.dir = Math.sign(fin.fig.spot.x - v.x) || v.dir;
+      }
+    }
     if (v.y === 0) v.y = 0; // never -0
     return v;
   }
@@ -1014,8 +1190,8 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
   }
 
   // One god's frame. Whether the next will draw it otherwise.
-  function renderFig(fig: Fig, now: number): boolean {
-    const v = sample(fig, now);
+  function renderFig(fig: Fig, now: number, fin: Finale | null): boolean {
+    const v = sample(fig, now, fin);
     fig.vis = v;
     const el = fig.el;
     const tx = `translate3d(${(v.x - HEAD).toFixed(2)}px, ${Number((v.y - v.lift).toFixed(2))}px, 0)`;
@@ -1031,6 +1207,17 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
       "press",
       v.press,
       (k) => (fig.sealEl.style.transform = k === 1 ? "" : `scale(${k.toFixed(3)})`),
+    );
+    put(fig, "react", v.react, (how) => {
+      if (how) el.dataset.react = how;
+      else delete el.dataset.react;
+    });
+    put(fig, "laurel", v.laurel, (on) => el.classList.toggle("is-laureled", on));
+    put(
+      fig,
+      "wreath",
+      v.wreath,
+      (k) => (fig.laurelEl.style.transform = k === 1 ? "" : `scale(${k.toFixed(3)})`),
     );
     put(fig, "dim", v.dim, (k) => {
       el.classList.toggle("is-dim", k > 0);
@@ -1065,8 +1252,9 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
     let moving = false;
     let wake = renderHearth(now);
     for (const t of terraces) moving = renderFloor(t, now) || moving;
-    for (const fig of [...figs.values(), ...leaving]) {
-      moving = renderFig(fig, now) || moving;
+    const fin = finaleOf();
+    for (const fig of [...figs.values(), ...(herald ? [herald] : []), ...leaving]) {
+      moving = renderFig(fig, now, fin) || moving;
       wake = Math.min(wake, fig.vis!.wake);
     }
     return moving || (wake < Infinity ? wake : false);
@@ -1075,15 +1263,15 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
   let synced = "";
 
   return {
-    sync(agents, state) {
+    sync(agents, state, laurel = null) {
       if (disposed) return;
-      const now = `${state}\n${agents
+      const now = `${state} ${laurel ?? ""}\n${agents
         .map((a) => `${a.key} ${a.god} ${a.status} ${a.family} ${a.label}`)
         .join("\n")}`;
       if (now === synced) return;
       synced = now;
       const records = [...agents];
-      sim.soon(() => reconcile(records, state));
+      sim.soon(() => reconcile(records, state, laurel));
     },
     resize() {
       if (disposed) return;
@@ -1143,10 +1331,19 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
             dim: v.dim,
             crack: v.crack,
             sealed: v.sealed,
+            laurel: v.laurel,
             fidget: v.fid === STILL ? null : v.fid,
           };
         }),
         off: latest.filter((a) => !figs.has(a.key)).map((a) => a.key),
+        herald: herald
+          ? ((v): CourtPeek["herald"] => ({
+              x: v.x,
+              dir: v.dir,
+              shown: v.fig,
+              crown: v.react === "crown",
+            }))(sample(herald, now))
+          : null,
       };
     },
     dispose() {
@@ -1158,6 +1355,7 @@ export function createCourtyard(root: HTMLElement, opts: CourtOptions): Courtyar
       }
       figs.clear();
       leaving.clear();
+      herald = null;
       latest = [];
       known.clear();
       root.replaceChildren();

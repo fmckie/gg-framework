@@ -281,32 +281,34 @@ function coordinator(input: GoalAgentsInput): GoalAgent {
   };
 }
 
+/** One worker as its row has it: its state, and what it is doing in words. */
+export function workerGoalAgent(agent: WorkerAgent): GoalAgent {
+  const status = goalAgentStatus(agent);
+  const activity = agent.activity?.trim();
+  const kind = status === "working" ? (toolKindOf(activity) ?? "think") : null;
+  return {
+    key: agent.key,
+    agentName: agent.agentName,
+    name: agent.label,
+    coordinator: false,
+    status,
+    kind,
+    detail:
+      status === "done"
+        ? "Finished"
+        : status === "error"
+          ? "Stopped"
+          : activity
+            ? clip(activity)
+            : status === "working"
+              ? "Thinking"
+              : "Waiting for work",
+  };
+}
+
 /** Everyone on the goal right now: the coordinator first, then its workers. */
 export function collectGoalAgents(input: GoalAgentsInput): GoalAgent[] {
-  const workers = input.workers.map((agent): GoalAgent => {
-    const status = goalAgentStatus(agent);
-    const activity = agent.activity?.trim();
-    const kind = status === "working" ? (toolKindOf(activity) ?? "think") : null;
-    return {
-      key: agent.key,
-      agentName: agent.agentName,
-      name: agent.label,
-      coordinator: false,
-      status,
-      kind,
-      detail:
-        status === "done"
-          ? "Finished"
-          : status === "error"
-            ? "Stopped"
-            : activity
-              ? clip(activity)
-              : status === "working"
-                ? "Thinking"
-                : "Waiting for work",
-    };
-  });
-  return [coordinator(input), ...workers];
+  return [coordinator(input), ...input.workers.map(workerGoalAgent)];
 }
 
 /** The state label a row shows next to its dot. */

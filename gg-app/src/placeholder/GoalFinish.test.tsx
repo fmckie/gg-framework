@@ -15,6 +15,7 @@ describe("GoalFinish", () => {
           id: 8000,
           goalId: "g",
           outcome: "done",
+          fromItemId: 0,
           elapsedMs: 7000,
           turns: 5,
           workers: 2,

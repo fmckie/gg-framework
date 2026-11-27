@@ -83,6 +83,38 @@ describe("the courtyard in a goal's Workers view", () => {
     ]);
   });
 
+  it("ends the stage on a finished stretch: the engine is told who did most, and has Nike's crown to give", () => {
+    const stage = staged();
+    const done = [OWL, BEE].map((agent) => ({ ...agent, status: "done" as const }));
+    const draw = (hearth: "finished" | "idle", laurel?: string | null): React.ReactElement => (
+      <OlympusCourt agents={done} hearth={hearth} laurel={laurel} stage={stage} />
+    );
+    const { container, rerender } = render(draw("finished", "1:b"));
+    act(() => stage.host.advance(5000));
+    const court = stage.courts[0]!;
+    expect(container.querySelector<HTMLElement>(".oly-hearth")?.dataset.state).toBe("finished");
+    expect(court.peek().gods.map((g) => [g.key, g.laurel])).toEqual([
+      ["1:a", false],
+      ["1:b", true],
+    ]);
+    expect(court.peek().herald).toMatchObject({ x: 650, crown: false });
+    expect(container.querySelector(".oly-herald img.oly-p-crown")).not.toBeNull();
+    // Another's laurel while the finish stands.
+    rerender(draw("finished", "1:a"));
+    act(() => stage.host.advance(5000));
+    expect(court.peek().gods.map((g) => g.laurel)).toEqual([true, false]);
+    // The finish comes down; with no laurel said, nobody is crowned.
+    rerender(draw("idle"));
+    act(() => stage.host.advance(1000));
+    expect(court.peek().gods.map((g) => g.laurel)).toEqual([false, false]);
+    expect(court.peek().herald).toBeNull();
+    expect(container.querySelector(".oly-herald, .is-laureled")).toBeNull();
+    rerender(draw("finished"));
+    act(() => stage.host.advance(5000));
+    expect(court.peek().gods.map((g) => g.laurel)).toEqual([false, false]);
+    expect(court.peek().herald).toBeNull();
+  });
+
   it("marks the name of the god whose row is pointed at, and says whose god the pointer is on", () => {
     const stage = staged();
     const hovers: (string | null)[] = [];

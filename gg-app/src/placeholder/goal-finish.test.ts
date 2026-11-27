@@ -62,6 +62,8 @@ describe("goal finish", () => {
     expect(goalFinishOf(stretch, groups)).toMatchObject({
       id: 8000,
       outcome: "done",
+      // The stretch's first run, so its workers can be found again.
+      fromItemId: 10,
       elapsedMs: 7000,
       turns: 5,
       workers: 2,

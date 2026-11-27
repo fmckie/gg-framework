@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CAST, FRAME_URLS, POSE_URLS } from "./cast";
+import { CAST, CROWN_URLS, FRAME_URLS, POSE_URLS } from "./cast";
 import { COURT, planCourt, route, routeMs } from "./court-plan";
 import {
   createCourtyard,
@@ -699,7 +699,8 @@ describe("a god and its row", () => {
 // What is drawn of the gods, their names and the hearth: each one's classes, its
 // data and its styles, whatever order they were written in.
 function drawn(root: HTMLElement): string {
-  const parts = ".oly-cell, .oly-fig, .oly-poses, .oly-part, .oly-seal, .oly-ins, .oly-hearth";
+  const parts =
+    ".oly-cell, .oly-fig, .oly-poses, .oly-part, .oly-seal, .oly-laurel, .oly-ins, .oly-hearth";
   return [...root.querySelectorAll<HTMLElement>(parts)]
     .map((el) => {
       const data = Object.entries(el.dataset).sort();
@@ -752,6 +753,346 @@ describe("a run", () => {
       return seen;
     };
     const smooth = play((host, ms) => host.run(ms));
+    expect(play((host, ms) => host.run(ms, 50))).toEqual(smooth);
+    expect(play((host, ms) => host.run(ms, 333))).toEqual(smooth);
+    expect(play((host, ms) => host.advance(ms))).toEqual(smooth);
+  });
+});
+
+describe("the finale: a stretch of the goal's work has finished", () => {
+  // Four sealed round the hearth as the stage opens: at 303 and 395, then 251 and 447.
+  const crew = [
+    A("w1", "athena", "done", "look"),
+    A("w2", "hermes", "done", "run"),
+    A("w3", "argus", "done", "web"),
+    A("w4", "themis", "done", "think"),
+  ];
+  const laurels = (court: Courtyard): string[] =>
+    court
+      .peek()
+      .gods.filter((g) => g.laurel)
+      .map((g) => g.key);
+  const heraldEl = (root: HTMLElement): HTMLElement | null =>
+    root.querySelector<HTMLElement>(".oly-herald");
+
+  it("the hearth burns with one steady flame, and asks nothing of the clock", () => {
+    const { root, court, host } = staged();
+    const hearth = root.querySelector<HTMLElement>(".oly-hearth")!;
+    court.sync([], "finished");
+    host.advance(OPEN);
+    for (let i = 0; i < 24; i++) {
+      host.advance(170);
+      expect([hearth.dataset.state, hearth.dataset.flame]).toEqual(["finished", "0"]);
+    }
+    expect(court.peek().hearth).toEqual({ state: "finished", flame: 0 });
+    expect(host.pending()).toBe(0);
+  });
+
+  it("the laurel waits until the god that did most stands sealed in the temple, and is pressed on as its seal is", () => {
+    const { root, court, host } = staged();
+    const at = (w1: CourtAgent["status"]): CourtAgent[] => [
+      A("w1", "hermes", w1, "run"),
+      A("w2", "athena", "done", "look"),
+    ];
+    court.sync(at("working"), "working");
+    host.advance(OPEN);
+    court.sync(at("done"), "idle");
+    host.advance(0);
+    // The stretch is finished while it is still on its way up.
+    court.sync(at("done"), "finished", "w1");
+    host.advance(0);
+    expect(godOf(court, "w1")).toMatchObject({ zone: "temple", walking: true, laurel: false });
+    const legs = route(
+      plan,
+      { level: 0, x: 431 },
+      { level: 2, x: 395 },
+      CAST.gods.hermes.move.speed,
+    );
+    host.advance(routeMs(legs) + 10);
+    expect(godOf(court, "w1")).toMatchObject({ x: 395, walking: false, sealed: false });
+    host.advance(320);
+    expect(godOf(court, "w1")).toMatchObject({ sealed: true, laurel: false });
+    // Its seal pressed, a beat, and then the laurel comes down: 1100ms from its arrival.
+    host.advance(750);
+    expect(laurels(court)).toEqual([]);
+    expect(root.querySelector(".is-laureled")).toBeNull();
+    host.advance(20);
+    expect(laurels(court)).toEqual(["w1"]);
+    const cell = cellOf(root, "w1");
+    expect(cell.classList.contains("is-laureled")).toBe(true);
+    const wreath = cell.querySelector<SVGElement>(".oly-fig > svg.oly-laurel")!;
+    expect(wreath.style.transform).toBe("scale(1.700)");
+    host.advance(90);
+    expect(wreath.style.transform).toMatch(/^scale\(1\.[0-6]\d\d\)$/);
+    host.advance(200);
+    expect(wreath.style.transform).toBe("");
+    // Only the one that did most wears it.
+    expect(cellOf(root, "w2").classList.contains("is-laureled")).toBe(false);
+    host.advance(1000);
+    expect(host.pending()).toBe(0);
+  });
+
+  it("each god's laurel sits where its own head is, from the cast's measure of it", () => {
+    const { root, court, host } = staged();
+    const gods = Object.keys(CAST.gods) as GodId[];
+    // Spread over the zones, so there is a place for each.
+    const families = ["make", "run", "look", "web"] as const;
+    court.sync(
+      gods.map((god, i) => A(god, god, "working", families[i % 4]!)),
+      "idle",
+    );
+    host.advance(0);
+    expect(court.peek().off).toEqual([]);
+    for (const god of gods) {
+      const cell = cellOf(root, god);
+      const [x, y] = ["--oly-lx", "--oly-ly"].map((name) =>
+        parseFloat(cell.style.getPropertyValue(name)),
+      );
+      // On the head line, give or take, and just under the figure's top.
+      expect(Math.abs(x! + 8 - COURT.cell.head)).toBeLessThanOrEqual(2);
+      expect(y! - CAST.gods[god].top.stand).toBeGreaterThanOrEqual(0);
+      expect(y! - CAST.gods[god].top.stand).toBeLessThanOrEqual(6);
+      expect(cell.querySelectorAll(".oly-laurel ellipse")).toHaveLength(9);
+    }
+  });
+
+  it("there is no laurel on the stage when the worker that did most is not on it", () => {
+    const { root, court, host } = staged({ crowns: CROWN_URLS });
+    // Seven finished before the stage saw them: it shows the latest six.
+    const seven = Array.from({ length: 7 }, (_, i) => A(`w${i}`, "athena", "done", "look"));
+    court.sync(seven, "finished", "w0");
+    host.advance(OPEN + 3000);
+    expect(court.peek().off).toEqual(["w0"]);
+    expect(court.peek().hearth.state).toBe("finished");
+    expect(laurels(court)).toEqual([]);
+    expect(root.querySelector(".is-laureled")).toBeNull();
+    // And nobody to crown: no herald either.
+    expect(court.peek().herald).toBeNull();
+    expect(heraldEl(root)).toBeNull();
+    // Nor with nobody named at all.
+    court.sync(seven, "finished", null);
+    host.advance(3000);
+    expect(laurels(court)).toEqual([]);
+    expect(heraldEl(root)).toBeNull();
+    expect(host.pending()).toBe(0);
+  });
+
+  it("Nike stands at the summit's free end and raises her crown to the crowned god for four of her beats, while the others sealed there turn to it; then she stands", () => {
+    const stage = staged({ crowns: CROWN_URLS });
+    const { root, court, host } = stage;
+    court.sync(crew, "working");
+    host.advance(OPEN);
+    expect(court.peek().herald).toBeNull();
+    court.sync(crew, "finished", "w4");
+    host.advance(0);
+    // She shows at the right end, facing the temple; nothing is raised yet.
+    expect(court.peek().herald).toEqual({ x: 650, dir: -1, shown: 0, crown: false });
+    const she = heraldEl(root)!;
+    expect(she.dataset.god).toBe("nike");
+    expect(she.classList.contains("is-left")).toBe(true);
+    const crown = she.querySelector<HTMLImageElement>("img.oly-p-crown")!;
+    expect(crown.getAttribute("src")).toBe(CROWN_URLS.nike);
+    expect([crown.style.left, crown.style.width]).toEqual(["11px", "67px"]);
+    const dirs = (): number[] => ["w1", "w2", "w3", "w4"].map((key) => godOf(court, key).dir);
+    host.advance(310);
+    expect(court.peek().herald).toMatchObject({ crown: false });
+    expect(court.peek().herald!.shown).toBeGreaterThan(0.9);
+    expect(dirs()).toEqual([1, -1, 1, -1]);
+    // Shown, she raises it: the lane's own crown, in place of her pose.
+    host.advance(10);
+    expect(court.peek().herald).toEqual({ x: 650, dir: -1, shown: 1, crown: true });
+    expect([she.dataset.react, she.dataset.pose]).toEqual(["crown", "stand"]);
+    // Hermes, between the hearth and Themis, turns round to her; the rest face her already.
+    expect(dirs()).toEqual([1, 1, 1, -1]);
+    expect(cellOf(root, "w2").classList.contains("is-left")).toBe(false);
+    // The laurel comes down under the raised crown.
+    expect(laurels(court)).toEqual([]);
+    host.advance(300);
+    expect(laurels(court)).toEqual(["w4"]);
+    // Four beats of hers, 1440ms, and she stands; the others turn back.
+    host.advance(4 * CAST.gods.nike.step - 300 - 10);
+    expect(court.peek().herald).toMatchObject({ crown: true });
+    expect(dirs()).toEqual([1, 1, 1, -1]);
+    host.advance(10);
+    expect(court.peek().herald).toEqual({ x: 650, dir: -1, shown: 1, crown: false });
+    expect(she.dataset.react).toBeUndefined();
+    expect(dirs()).toEqual([1, -1, 1, -1]);
+    expect(laurels(court)).toEqual(["w4"]);
+    host.advance(1000);
+    expect(host.pending()).toBe(0);
+
+    // She is no worker: no name is carved under her, she holds no place, and the pointer finds nobody.
+    expect(names(root)).toEqual(["w1", "w2", "w3", "w4"]);
+    expect(she.dataset.key).toBeUndefined();
+    expect(court.peek().gods.map((g) => g.key)).toEqual(["w1", "w2", "w3", "w4"]);
+    she.dispatchEvent(new Event("pointerenter"));
+    expect(stage.hovers).toEqual([]);
+  });
+
+  it("Nike comes only where there is room for her: the laurel stands alone on a narrower stage, or without her crown's picture", () => {
+    const at = (width: number, over: Partial<CourtOptions> = {}): Staged => {
+      const stage = staged({ crowns: CROWN_URLS, ...over });
+      stage.width = width;
+      stage.court.resize();
+      stage.court.sync(crew, "finished", "w1");
+      stage.host.advance(OPEN + 3000);
+      return stage;
+    };
+    const wide = at(560);
+    expect(wide.court.peek().herald).toMatchObject({ x: 512, crown: false });
+    expect(laurels(wide.court)).toEqual(["w1"]);
+    const narrow = at(559);
+    expect(narrow.court.peek().herald).toBeNull();
+    expect(heraldEl(narrow.root)).toBeNull();
+    expect(laurels(narrow.court)).toEqual(["w1"]);
+    // Nobody turned for a crown that was never raised.
+    expect(narrow.court.peek().gods.map((g) => g.dir)).toEqual([1, -1, 1, -1]);
+    const bare = at(698, { crowns: undefined });
+    expect(bare.court.peek().herald).toBeNull();
+    expect(laurels(bare.court)).toEqual(["w1"]);
+
+    // A stage made narrower under her: she goes, and the laurel stays.
+    wide.width = 520;
+    wide.court.resize();
+    wide.host.advance(0);
+    expect(wide.court.peek().herald).toBeNull();
+    expect(laurels(wide.court)).toEqual(["w1"]);
+    wide.host.advance(400);
+    expect(heraldEl(wide.root)).toBeNull();
+    // Wider again, she is put back, with no second crowning.
+    wide.width = 900;
+    wide.court.resize();
+    wide.host.advance(400);
+    expect(wide.court.peek().herald).toEqual({ x: 852, dir: -1, shown: 1, crown: false });
+    wide.host.advance(3000);
+    expect(wide.court.peek().herald).toMatchObject({ crown: false });
+    expect(laurels(wide.court)).toEqual(["w1"]);
+    expect(wide.host.pending()).toBe(0);
+  });
+
+  it("a stretch that couldn't finish has none of it: embers, no laurel, no Nike", () => {
+    const { root, court, host } = staged({ crowns: CROWN_URLS });
+    court.sync(crew, "idle", null);
+    host.advance(OPEN + 3000);
+    expect(root.querySelector<HTMLElement>(".oly-hearth")!.dataset.state).toBe("idle");
+    expect(laurels(court)).toEqual([]);
+    expect(court.peek().herald).toBeNull();
+    // Even told who did most: only a finished hearth crowns anyone.
+    for (const state of ["idle", "working", "waiting"] as const) {
+      court.sync(crew, state, "w1");
+      host.advance(3000);
+      expect(laurels(court)).toEqual([]);
+      expect(heraldEl(root)).toBeNull();
+    }
+  });
+
+  it("ends when the finish comes down: the laurel is taken off and Nike goes; another finish crowns again", () => {
+    const { root, court, host } = staged({ crowns: CROWN_URLS });
+    court.sync(crew, "finished", "w1");
+    host.advance(OPEN + 3000);
+    expect(laurels(court)).toEqual(["w1"]);
+    expect(heraldEl(root)).not.toBeNull();
+    // Closed, or work started again.
+    court.sync(crew, "idle", null);
+    host.advance(0);
+    expect(laurels(court)).toEqual([]);
+    expect(cellOf(root, "w1").classList.contains("is-laureled")).toBe(false);
+    expect(court.peek().herald).toBeNull();
+    // She fades from the stage, as anyone taken off it does.
+    expect(heraldEl(root)).not.toBeNull();
+    host.advance(160);
+    expect(
+      Number(heraldEl(root)!.querySelector<HTMLElement>(".oly-fig")!.style.opacity),
+    ).toBeCloseTo(0.5, 1);
+    host.advance(200);
+    expect(heraldEl(root)).toBeNull();
+    expect(host.pending()).toBe(0);
+
+    // The next stretch: its own laurel, and her crown raised again.
+    court.sync(crew, "finished", "w3");
+    host.advance(700);
+    expect(laurels(court)).toEqual(["w3"]);
+    expect(court.peek().herald).toMatchObject({ crown: true });
+    // The laurel given to another while the finish stands: the finale begins again for it.
+    court.sync(crew, "finished", "w2");
+    host.advance(0);
+    expect(laurels(court)).toEqual([]);
+    host.advance(310);
+    expect(court.peek().herald).toMatchObject({ crown: false });
+    host.advance(320);
+    expect(laurels(court)).toEqual(["w2"]);
+    expect(court.peek().herald).toMatchObject({ crown: true });
+    expect(root.querySelectorAll(".oly-herald")).toHaveLength(1);
+    host.advance(3000);
+    expect(host.pending()).toBe(0);
+  });
+
+  it("asked for less motion: the laurel is simply on, Nike simply stands, and the flame is still", () => {
+    const { root, court, host } = staged({ reduced: () => true, crowns: CROWN_URLS });
+    court.sync(crew, "working");
+    host.advance(0);
+    court.sync(crew, "finished", "w4");
+    host.advance(0);
+    const still = (): void => {
+      expect(laurels(court)).toEqual(["w4"]);
+      expect(cellOf(root, "w4").querySelector<SVGElement>(".oly-laurel")!.style.transform).toBe("");
+      // No raise and no turn: Hermes keeps his face to the hearth.
+      expect(court.peek().herald).toEqual({ x: 650, dir: -1, shown: 1, crown: false });
+      expect(heraldEl(root)!.dataset.react).toBeUndefined();
+      expect(court.peek().gods.map((g) => g.dir)).toEqual([1, -1, 1, -1]);
+      const hearth = root.querySelector<HTMLElement>(".oly-hearth")!;
+      expect([hearth.dataset.state, hearth.dataset.flame]).toEqual(["finished", "0"]);
+      expect(host.pending()).toBe(0);
+    };
+    still();
+    host.advance(5000);
+    still();
+    // Ended, both are gone at once.
+    court.sync(crew, "idle", null);
+    host.advance(0);
+    expect(laurels(court)).toEqual([]);
+    expect(heraldEl(root)).toBeNull();
+    expect(host.pending()).toBe(0);
+  });
+
+  it("plays the same however its frames fall", () => {
+    const play = (tick: (host: ManualHost, ms: number) => void): string[] => {
+      const { root, court, host } = staged({ fidget: true, crowns: CROWN_URLS });
+      const seen: string[] = [];
+      const mark = (): void => {
+        seen.push(JSON.stringify(court.peek()), drawn(root));
+      };
+      const at = (w5: CourtAgent["status"]): CourtAgent[] => [
+        ...crew,
+        A("w5", "hephaestus", w5, "make"),
+      ];
+      court.sync(at("working"), "working");
+      tick(host, 4321);
+      mark();
+      court.sync(at("done"), "idle");
+      tick(host, 1500);
+      mark();
+      // Finished while the last of them is on its way up: the agora to the temple's fifth place.
+      court.sync(at("done"), "finished", "w5");
+      const way = routeMs(
+        route(plan, { level: 0, x: 170 }, { level: 2, x: 199 }, CAST.gods.hephaestus.move.speed),
+      );
+      // Still walking; arrived and sealed; the crown up; the laurel on under it; and after.
+      for (const ms of [300, way - 2000, 700, 450, 300, 1200, 6000]) {
+        tick(host, ms);
+        mark();
+      }
+      court.sync(at("done"), "working");
+      tick(host, 200);
+      mark();
+      tick(host, 2000);
+      mark();
+      return seen;
+    };
+    const smooth = play((host, ms) => host.run(ms));
+    // The laurel is set and the crown raised within the run, not only at its end.
+    expect(smooth.some((frame) => frame.includes('"crown":true'))).toBe(true);
+    expect(smooth.some((frame) => frame.includes('"laurel":true'))).toBe(true);
     expect(play((host, ms) => host.run(ms, 50))).toEqual(smooth);
     expect(play((host, ms) => host.run(ms, 333))).toEqual(smooth);
     expect(play((host, ms) => host.advance(ms))).toEqual(smooth);

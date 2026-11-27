@@ -93,7 +93,8 @@
 
 /* The hearth, the coordinator's: a bronze bowl on a marble stand. Embers
    while it is idle; a crimson flame while it works, in whichever of its
-   shapes the engine says (data-flame); a lapis rim while it waits on you. */
+   shapes the engine says (data-flame); a lapis rim while it waits on you;
+   and, a stretch of its work finished, the one upright flame, steady. */
 .oly-hearth {
   position: absolute;
   z-index: 1;
@@ -109,7 +110,7 @@
 .oly-hearth-glow {
   visibility: hidden;
 }
-.oly-hearth[data-state="working"] .oly-hearth-glow {
+.oly-hearth:is([data-state="working"], [data-state="finished"]) .oly-hearth-glow {
   visibility: visible;
 }
 .oly-flame {
@@ -117,7 +118,8 @@
 }
 .oly-hearth[data-state="working"][data-flame="0"] .oly-flame-0,
 .oly-hearth[data-state="working"][data-flame="1"] .oly-flame-1,
-.oly-hearth[data-state="working"][data-flame="2"] .oly-flame-2 {
+.oly-hearth[data-state="working"][data-flame="2"] .oly-flame-2,
+.oly-hearth[data-state="finished"] .oly-flame-0 {
   visibility: visible;
 }
 .oly-flame-out {
@@ -135,7 +137,7 @@
 .oly-hearth-ember {
   fill: #7d2a32;
 }
-.oly-hearth[data-state="working"] .oly-hearth-ember {
+.oly-hearth:is([data-state="working"], [data-state="finished"]) .oly-hearth-ember {
   fill: #d53446;
 }
 .oly-hearth-bowl {
@@ -177,4 +179,39 @@
   outline: 2px solid #3b3133;
   outline-offset: 2px;
   border-radius: 2px;
+}
+
+/* The laurel, on the head of the god that did most once a stretch is
+   finished: a spray in verdigris, which only the standing pose wears. Where
+   it sits on each head, when it comes down and its press are the engine's. It
+   turns with its god. */
+.oly-laurel {
+  position: absolute;
+  left: var(--oly-lx);
+  top: var(--oly-ly);
+  width: 16px;
+  height: 10px;
+  overflow: visible;
+  visibility: hidden;
+}
+.oly-cell.is-laureled[data-pose="stand"] .oly-laurel {
+  visibility: visible;
+}
+.oly-laurel-leaf {
+  fill: #6fb893;
+  stroke: #1f3d31;
+  stroke-width: 0.5;
+}
+.oly-laurel-tie {
+  fill: none;
+  stroke: #1f3d31;
+  stroke-width: 0.8;
+  stroke-linecap: round;
+}
+
+/* The herald at a finish: Nike at the summit's free end, her crown raised
+   toward the god that did most (the lane's own picture and rule, data-react).
+   She is no worker: no name is carved under her, and she takes no pointer. */
+.oly-court .oly-herald {
+  pointer-events: none;
 }

@@ -24,6 +24,8 @@ export interface GoalFinish {
   readonly id: number;
   readonly goalId: string;
   readonly outcome: FinishOutcome;
+  /** Where the stretch began in the transcript: its workers' groups come after it. */
+  readonly fromItemId: number;
   readonly elapsedMs: number;
   /** The coordinator's own model turns across the stretch. */
   readonly turns: number;
@@ -98,6 +100,7 @@ export function goalFinishOf(
     id: last.endedAt,
     goalId: last.goalId,
     outcome: last.outcome,
+    fromItemId: first.fromItemId,
     elapsedMs: Math.max(0, last.endedAt - first.startedAt),
     turns: stretch.reduce((sum, run) => sum + run.turns, 0),
     workers: agents.length,
