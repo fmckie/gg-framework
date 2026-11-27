@@ -146,6 +146,13 @@ html:not(.platform-ios) {
   font-style: normal;
   font-display: swap;
 }
+/* The plates' face (KleioPlate.tsx): Alagard by Hewett Tsoi, free with credit
+   (assets/fonts/Alagard-CREDIT.txt). Drawn on a 16px grid: use it at 16px or a multiple. */
+@font-face {
+  font-family: "Alagard";
+  src: url("./assets/fonts/Alagard.ttf") format("truetype");
+  font-display: block;
+}
 
 /* ── The Kleio mark: the icon's column-K over a wide-tracked serif name ── */
 .kleio-mark {
@@ -196,6 +203,22 @@ html:not(.platform-ios) {
 .kleio-mark.is-small .kleio-wordmark {
   font-size: 39px;
 }
+/* Home and the connect screens: the name in the thin classical serif, as in 2.2.0, with no
+   shade layer. Settings keeps the Bungee wordmark above. */
+:is(.home, .kleio-gate) .kleio-mark .kleio-wordmark {
+  font-family: Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
+  font-size: 60px;
+  letter-spacing: 0.32em;
+  margin-right: -0.32em;
+  color: #fff;
+  text-shadow: 0 2px 24px rgb(0 0 0 / 0.5);
+}
+:is(.home, .kleio-gate) .kleio-mark .kleio-wordmark::after {
+  content: none;
+}
+:is(.home, .kleio-gate) .kleio-mark.is-small .kleio-wordmark {
+  font-size: 42px;
+}
 
 /* ── Home ── Ken's layout and entry animation (.home and friends), with a
    crimson wash over the dithered waves in place of his neutral grey. */
@@ -228,7 +251,7 @@ html:not(.platform-ios) {
   color: var(--text-secondary);
 }
 /* ── Cloisonné: crimson enamel, domed, in a polished rim ──
-   Home's ways in: Kleio, Code and Specialists, and Talk to Kleio as .is-small. Two layers: the
+   The iPhone's ways in (the desktop has plates, below), and Talk to Kleio as .is-small. Two layers: the
    rim, painted under the transparent border, and ::before, the enamel inside it. Nothing moves
    at rest. Labels: #f6f1f1 on #b31d30 is 5.99:1, on hover #c42638 5.10:1; #f7e6e8 5.56:1 and
    4.74:1. */
@@ -334,18 +357,6 @@ html:not(.platform-ios) {
   opacity: 0.5;
   filter: none;
 }
-/* Desktop: the approved "off" instead: a grey label, a flat rim and dark
-   enamel. Still clickable (it sends people to Settings). */
-html:not(.platform-ios) .kleio-cloisonne.is-dimmed,
-html:not(.platform-ios) .kleio-cloisonne.is-dimmed:hover {
-  opacity: 1;
-  color: #a19798;
-  background: linear-gradient(#3b3435, #3b3435) border-box;
-}
-html:not(.platform-ios) .kleio-cloisonne.is-dimmed::before {
-  background-color: #1d1819;
-  box-shadow: none;
-}
 /* Small (Talk to Kleio): 32px tall, a 1.5px rim and 1.5px of press. */
 .kleio-cloisonne.is-small {
   height: 32px;
@@ -397,45 +408,110 @@ html:not(.platform-ios) .kleio-cloisonne.is-dimmed::before {
 .kleio-home > .home-quiet {
   margin-bottom: auto;
 }
-/* Five equal ways in: every button takes the widest one's width. Each spans two half-columns,
-   so a short last row can sit centred. */
-.kleio-home .home-actions {
-  display: inline-grid;
-  grid-template-columns: repeat(10, 1fr);
+/* ── Plates (KleioPlate.tsx): the desktop's ways in ──
+   Upstream's plate buttons in crimson on stone: three 124×46 pixel canvases (socket, plate, lip)
+   at --plate-scale, the word in Alagard on its 16px grid. Bone on the plate's #b31d30 is 5.6:1,
+   white while pointed at 6.7:1. */
+.kleio-plate {
+  --s: var(--plate-scale, 2);
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: calc(124px * var(--s));
+  height: calc(46px * var(--s));
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
-.kleio-home .home-actions > .home-action {
+.kleio-plate-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.kleio-plate-face {
+  position: absolute;
+  inset: 0;
+  translate: 0 calc(var(--plate-y, 0) * 1px * var(--s));
+  pointer-events: none;
+}
+.kleio-plate-word {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(7px * var(--s));
+  font-family: "Alagard", serif;
+  font-size: calc(16px * var(--s));
+  line-height: calc(16px * var(--s));
+  font-weight: 400;
+  -webkit-font-smoothing: none;
+  color: #f3e9e6;
+  text-align: center;
+  text-shadow: 0 calc(1px * var(--s)) 0 #5e101d;
+  white-space: nowrap;
+}
+.kleio-plate:hover:not(.is-dimmed) .kleio-plate-word {
+  color: #fff;
+}
+.kleio-plate:focus {
+  outline: none;
+}
+/* 2px at every scale: an art pixel is too thin a ring at 1×. */
+.kleio-plate:focus-visible {
+  outline: 2px solid #f6f1f1;
+  outline-offset: 2px;
+}
+/* Something is missing: sunk in its socket and dull, but still clickable (it sends people to
+   Settings). The dulling is the layers' own: App.css's .is-dimmed would fade the whole plate to
+   45% on top of it. */
+.kleio-plate.is-dimmed,
+.kleio-plate.is-dimmed:hover {
+  opacity: 1;
+  filter: none;
+}
+.kleio-plate.is-dimmed .kleio-plate-layer {
+  filter: saturate(0.45) brightness(0.7);
+}
+.kleio-plate.is-dimmed .kleio-plate-word {
+  color: #b9a9a6;
+  text-shadow: none;
+}
+
+/* Six plates in a reverse pyramid: three, two, one. Each spans two half-columns, so the shorter
+   rows sit centred. Gaps of 8 and 5 art pixels keep every plate's corner on a whole pixel at
+   both scales. */
+html:not(.platform-ios) .kleio-home > .home-actions {
+  /* A third smaller than the art's own 2×. */
+  --plate-scale: calc(4 / 3);
+  --plate-gap: calc(8px * var(--plate-scale));
+  display: grid;
+  grid-template-columns: repeat(6, calc((124px * var(--plate-scale) - var(--plate-gap)) / 2));
+  gap: calc(5px * var(--plate-scale)) var(--plate-gap);
+  margin-bottom: auto;
+}
+html:not(.platform-ios) .kleio-home > .home-actions > .kleio-plate {
   grid-column: span 2;
 }
-/* Five at Specialists' full width need about 1011px of window: below that, three and two. */
-@media (max-width: 1015px) {
-  .kleio-home .home-actions {
-    grid-template-columns: repeat(6, 1fr);
-  }
-  .kleio-home .home-actions > .home-action:nth-child(4) {
-    grid-column: 2 / span 2;
-  }
+html:not(.platform-ios) .kleio-home > .home-actions > .kleio-plate:nth-child(4) {
+  grid-column: 2 / span 2;
 }
-/* Three need about 621px: below that, two, two and one. */
-@media (max-width: 625px) {
-  .kleio-home .home-actions {
-    grid-template-columns: repeat(4, 1fr);
-  }
-  .kleio-home .home-actions > .home-action:nth-child(4) {
-    grid-column: span 2;
-  }
-  .kleio-home .home-actions > .home-action:nth-child(5) {
-    grid-column: 2 / span 2;
-  }
+html:not(.platform-ios) .kleio-home > .home-actions > .kleio-plate:nth-child(6) {
+  grid-column: 3 / span 2;
 }
-/* Shortcuts that exist (window-shortcuts.ts); a phone has no keyboard for them. */
-.kleio-home .home-kbd {
-  margin-left: 2px;
-  font: 500 11px/1 var(--mono);
-  letter-spacing: 0.06em;
-  color: #f7e6e8;
-}
-html.platform-ios .kleio-home .home-kbd {
-  display: none;
+/* Three plates need about 565px of window and the column about 570px of height: below either,
+   1×, which fits the smallest window. */
+@media (max-width: 569px), (max-height: 579px) {
+  html:not(.platform-ios) .kleio-home > .home-actions {
+    --plate-scale: 1;
+  }
 }
 
 /* ── Home's quiet controls: the status pill and Settings ──

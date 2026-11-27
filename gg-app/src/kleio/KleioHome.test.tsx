@@ -79,6 +79,8 @@ function renderHome() {
 }
 
 beforeEach(() => {
+  // The plates draw on canvases, which jsdom doesn't have.
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
   vi.mocked(getSettings).mockResolvedValue({
     projectsRoot: "/Users/me/kleio-projects",
     configured: true,
@@ -109,10 +111,10 @@ describe("KleioHome", () => {
     expect(await screen.findByText("v0.73.2")).toBeDefined();
   });
 
-  it("Kleio opens the chat and Specialists opens the specialists; Apps is in Settings", async () => {
+  it("Chat opens the chat and Specialists opens the specialists; Apps is in Settings", async () => {
     const p = renderHome();
     await waitFor(() => expect(getSettings).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Kleio/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     fireEvent.click(screen.getByRole("button", { name: "Specialists" }));
     expect(p.onChat).toHaveBeenCalledOnce();
     expect(p.onBlobs).toHaveBeenCalledOnce();
@@ -148,49 +150,79 @@ describe("KleioHome", () => {
     expect(p.onGoals).toHaveBeenCalledOnce();
   });
 
-  it("dresses the three ways in and Talk to Kleio as domed buttons, with their shortcuts", async () => {
+  it("makes every way in a plate, Voice agent (Talk to Kleio) among them, with the shortcuts in the hover tips", async () => {
     renderHome();
     await waitFor(() => expect(getSettings).toHaveBeenCalled());
     // The host's answer (no voice here) can land late; set it until it holds.
     const talk = await waitFor(() => {
       act(() => setVoiceReady(true));
-      return screen.getByRole("button", { name: "Talk to Kleio" });
+      return screen.getByRole("button", { name: "Voice agent" });
     });
-    const kleio = screen.getByRole("button", { name: "Kleio" });
-    const code = screen.getByRole("button", { name: "Code" });
     const specialists = screen.getByRole("button", { name: "Specialists" });
-    for (const button of [kleio, code, specialists, talk]) {
-      expect(button.classList.contains("kleio-cloisonne")).toBe(true);
+    // The pyramid's order: three, two, one (the rows are kleio-theme.css's).
+    const plates = [...document.querySelectorAll(".home-actions > button")];
+    expect(plates.map((b) => b.textContent)).toEqual([
+      "Chat",
+      "Code",
+      "Motion",
+      "Goals",
+      "Specialists",
+      "Voice agent",
+    ]);
+    for (const plate of plates) {
+      expect(plate.classList.contains("kleio-plate")).toBe(true);
+      expect(plate.querySelectorAll("canvas[aria-hidden='true']")).toHaveLength(3);
     }
-    expect(talk.classList.contains("is-small")).toBe(true);
-    expect(kleio.classList.contains("is-small")).toBe(false);
+    expect(document.querySelector(".home-quiet, .kleio-cloisonne, kbd")).toBeNull();
     expect(specialists.getAttribute("aria-keyshortcuts")).toBe("Meta+Shift+L");
+    expect(specialists.getAttribute("title")).toBe("Specialists (⌘⇧L)");
     expect(talk.getAttribute("aria-keyshortcuts")).toBe("Meta+Shift+B");
-    for (const [button, keys] of [
-      [specialists, "⌘⇧L"],
-      [talk, "⌘⇧B"],
-    ] as const) {
-      const hint = button.querySelector("kbd");
-      expect(hint?.textContent).toBe(keys);
-      expect(hint?.getAttribute("aria-hidden")).toBe("true");
-    }
+    expect(talk.getAttribute("title")).toBe(
+      "Talk to Kleio: ask what's happening, or plan something out (⌘⇧B)",
+    );
     act(() => setVoiceReady(false));
   });
 
-  it("Goals is one domed button in the row, with an icon like the rest", async () => {
+  it("sinks a plate that isn't ready and raises it once it is", async () => {
+    vi.mocked(getSettings).mockResolvedValue({ projectsRoot: "", configured: false });
     renderHome();
-    await waitFor(() => expect(getSettings).toHaveBeenCalled());
-    const goals = screen.getAllByRole("button", { name: "Goals" });
-    expect(goals).toHaveLength(1);
-    expect(goals[0]!.parentElement?.classList.contains("home-actions")).toBe(true);
-    expect(goals[0]!.classList.contains("kleio-cloisonne")).toBe(true);
-    expect(goals[0]!.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
-    // The domed row: Kleio, Code, Motion, Goals and Specialists.
-    expect(
-      [...document.querySelectorAll(".home-actions > button")].map((b) =>
-        b.textContent?.replace(/⌘.*/, "").trim(),
-      ),
-    ).toEqual(["Kleio", "Code", "Motion", "Goals", "Specialists"]);
+    const code = screen.getByRole("button", { name: "Code" });
+    await waitFor(() => expect(code.classList.contains("is-dimmed")).toBe(true));
+    expect(code.getAttribute("aria-disabled")).toBe("true");
+    const goals = screen.getByRole("button", { name: "Goals" });
+    expect(goals.classList.contains("is-dimmed")).toBe(false);
+    expect(goals.getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("keeps the iPhone's column: five domed buttons with icons, and a small Voice agent under them", async () => {
+    document.documentElement.classList.add("platform-ios");
+    try {
+      renderHome();
+      await waitFor(() => expect(getSettings).toHaveBeenCalled());
+      const talk = await waitFor(() => {
+        act(() => setVoiceReady(true));
+        return screen.getByRole("button", { name: "Voice agent" });
+      });
+      const column = [...document.querySelectorAll(".home-actions > button")];
+      expect(column.map((b) => b.textContent)).toEqual([
+        "Chat",
+        "Code",
+        "Motion",
+        "Goals",
+        "Specialists",
+      ]);
+      for (const button of column) {
+        expect(button.className).toBe("kleio-cloisonne home-action");
+        expect(button.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+      }
+      expect(talk.className).toBe("kleio-cloisonne is-small home-brief");
+      expect(talk.parentElement?.className).toBe("home-quiet");
+      expect(talk.getAttribute("aria-keyshortcuts")).toBe("Meta+Shift+B");
+      expect(document.querySelector(".kleio-plate")).toBeNull();
+      act(() => setVoiceReady(false));
+    } finally {
+      document.documentElement.classList.remove("platform-ios");
+    }
   });
 
   it("holds its waves still while the voice screen covers it, so a call draws one set", async () => {
@@ -339,12 +371,12 @@ describe("KleioHome", () => {
       fireEvent.click(screen.getByRole("button", { name: /Code/ }));
       expect(p.onCode).toHaveBeenCalled();
     });
-    fireEvent.click(screen.getByRole("button", { name: /Kleio/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     expect(p.onChat).toHaveBeenCalledOnce();
     expect(toast).not.toHaveBeenCalled();
   });
 
-  it("without any model, Kleio and Code point to AI Providers instead", async () => {
+  it("without any model, Chat and Code point to AI Providers instead", async () => {
     vi.mocked(authStatusWithError).mockResolvedValue({
       providers: [{ provider: "openai", connected: false }],
       error: null,
@@ -353,7 +385,7 @@ describe("KleioHome", () => {
     const code = screen.getByRole("button", { name: /Code/ });
     await waitFor(() => expect(code.getAttribute("aria-disabled")).toBe("true"));
     fireEvent.click(code);
-    fireEvent.click(screen.getByRole("button", { name: /Kleio/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     expect(p.onCode).not.toHaveBeenCalled();
     expect(p.onChat).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith("Connect an AI model first.", "warning");
@@ -363,7 +395,7 @@ describe("KleioHome", () => {
   // The Mac mini restarting forgets the phone's session; until it is replaced,
   // the sign-in list can't be read. That is "unknown", not "no model": the
   // phone must not send someone who is signed in to AI Providers.
-  it("keeps Kleio and Code open when the Mac mini can't say who is signed in", async () => {
+  it("keeps Chat and Code open when the Mac mini can't say who is signed in", async () => {
     vi.mocked(authStatusWithError).mockResolvedValue({
       providers: [],
       error: "unknown session",
@@ -375,7 +407,7 @@ describe("KleioHome", () => {
       fireEvent.click(screen.getByRole("button", { name: /Code/ }));
       expect(p.onCode).toHaveBeenCalled();
     });
-    fireEvent.click(screen.getByRole("button", { name: /Kleio/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     expect(p.onChat).toHaveBeenCalledOnce();
     expect(toast).not.toHaveBeenCalled();
     expect(p.onSettings).not.toHaveBeenCalled();

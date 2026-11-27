@@ -77,7 +77,7 @@ const COPY = [
   "I built Kleio as my own AI harness: one place to talk, code and hand work to specialists. I hope it helps others too.",
   "GitHub (opens in your browser)",
   "Made with Tauri 2, React 19, TypeScript and Rust.",
-  "The wordmark is set in Bungee, the statement in Mukta Malar, the rest in your system's typeface.",
+  "The wordmark is set in Bungee, Home's buttons in Alagard by Hewett Tsoi, the statement in Mukta Malar, the rest in your system's typeface.",
   "This page moves with CSS and SVG alone, no animation libraries.",
 ];
 

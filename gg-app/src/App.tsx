@@ -2654,7 +2654,7 @@ function App(): React.ReactElement {
       <div className="app" style={{ background: theme.background }}>
         {entryView === "home" ? (
           <KleioHome
-            // The Kleio button is upstream's Chat button: the general agent.
+            // Chat is upstream's Chat button: the general agent.
             onChat={() =>
               withViewTransition(() => {
                 setWorkspaceMode("chat");
