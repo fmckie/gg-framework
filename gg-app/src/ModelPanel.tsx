@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { cycleThinking, type ModelOption, type ThinkingState } from "./agent";
 import { modelDisplayName } from "./model-name";
 import { groupByProvider } from "./provider-labels";
+import { isPhone } from "./platform";
 import { PaidModelConfirm } from "./placeholder/PaidModelConfirm";
 
 // The mockup's order and labels. A level the model lacks is not shown.
@@ -114,8 +115,9 @@ export function ModelPanel({
   const listRef = useRef<HTMLDivElement>(null);
   const useRefButton = useRef<HTMLButtonElement>(null);
 
+  // Not on the phone: a focused field raises its keyboard over the list.
   useEffect(() => {
-    searchRef.current?.focus({ preventScroll: true });
+    if (!isPhone()) searchRef.current?.focus({ preventScroll: true });
   }, []);
 
   // On the bubble phase, so an open Usage popover takes Escape first.

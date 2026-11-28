@@ -354,3 +354,21 @@ describe("ModelPanel — the Helper's model on the phone", () => {
     expect(panel.querySelector(".model-helper > .model-anchor")?.textContent).toBe("Helper");
   });
 });
+
+describe("ModelPanel, opening", () => {
+  it("puts the cursor in its search on the desktop", () => {
+    const { panel } = open();
+    expect(document.activeElement).toBe(panel.querySelector(".model-search input"));
+  });
+
+  it("leaves the phone's keyboard down until the search is tapped", () => {
+    document.documentElement.classList.add("platform-ios");
+    try {
+      const { panel } = open();
+      expect(document.activeElement).not.toBe(panel.querySelector(".model-search input"));
+      expect(panel.querySelectorAll(".model-option").length).toBeGreaterThan(0);
+    } finally {
+      document.documentElement.classList.remove("platform-ios");
+    }
+  });
+});

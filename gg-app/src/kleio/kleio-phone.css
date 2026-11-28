@@ -450,8 +450,15 @@ html.platform-ios .app.app-session > .model-panel .model-close {
 html.platform-ios .app.app-session > .model-panel :is(.model-option, .model-search input) {
   min-height: 44px;
 }
-/* With 44px rows the panel is taller than the room between the header and the
-   status row: it gives way, and its list is the part that shrinks and scrolls. */
+/* The Model panel keeps its own height and the transcript gives way. Both
+   used to shrink by their content's height, so a long transcript squeezed the
+   panel to a line; with a basis of 0 the transcript takes only what is left.
+   The panel shrinks only past the room between the header and the status row,
+   and then its list scrolls, never under three options and their heading. A
+   group's heading is 36px, a row 44. */
+html.platform-ios .app.app-session:has(> .model-panel) > .transcript-frame {
+  flex: 1 1 0;
+}
 html.platform-ios .app.app-session > .model-panel {
   display: flex;
   flex: 0 1 auto;
@@ -462,9 +469,9 @@ html.platform-ios .app.app-session > .model-panel > * {
   flex: none;
 }
 html.platform-ios .app.app-session > .model-panel .model-list {
-  flex: 0 1 176px;
+  flex: 0 1 calc(3 * 44px + 2 * 36px);
   height: auto;
-  min-height: 44px;
+  min-height: calc(3 * 44px + 36px);
 }
 /* Usage, from the status row's meter: the screen's width, scrolling inside
    when a short screen (the keyboard up) can't hold it. !important: the
@@ -620,6 +627,39 @@ html.platform-ios .app.app-session > .model-panel .model-helper {
 html.platform-ios .app.app-session > .model-panel .model-helper .model-anchor {
   min-height: 44px;
 }
+/* Searching, the keyboard takes 336px: the panel keeps its search, the list and
+   Use model, and the status row, Helper and Thinking wait for it to go down. */
+html.platform-ios.keyboard-open .app.app-session:has(> .model-panel) > :is(.footer, .liveregion),
+html.platform-ios.keyboard-open
+  .app.app-session
+  > .model-panel
+  :is(.model-helper, .model-thinking) {
+  display: none;
+}
+html.platform-ios.keyboard-open .app.app-session > .model-panel {
+  flex: 1 1 auto;
+}
+/* Use model stays on screen first: on a phone shorter than an iPhone 16 the
+   list gives up rows rather than push it under the keyboard. */
+html.platform-ios.keyboard-open .app.app-session > .model-panel .model-list {
+  flex: 1 1 auto;
+  min-height: 44px;
+}
+/* Its head and Use model's row drawn at their buttons' 44px, and the
+   candidate's name on one line: the list keeps three rows on an iPhone 16. */
+html.platform-ios.keyboard-open .app.app-session > .model-panel > header {
+  padding-block: 0;
+}
+html.platform-ios.keyboard-open .app.app-session > .model-panel .model-review {
+  min-height: 60px;
+}
+html.platform-ios.keyboard-open .app.app-session > .model-panel .model-review-copy strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Plan review: the tray's three buttons, and Send and Cancel under feedback. */
 html.platform-ios .app.app-session > .plan-review > .plan-review-actions .btn {
   height: 44px;

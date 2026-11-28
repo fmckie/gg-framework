@@ -889,6 +889,133 @@ describe("on the iPhone, a dialog", () => {
     expect(style(".panel-esc", "display")).toMatchObject({ value: "none" });
     expect(style(".panel-close", "margin-left")).toMatchObject({ value: "auto" });
   });
+
+  it("gives the Model panel's list the room the keyboard leaves, and only then", () => {
+    document.body.innerHTML = `
+      <div class="app app-session">
+        <section class="model-panel"><div class="model-helper"></div>
+          <label class="model-search"><input /></label><div class="model-list"></div>
+          <div class="model-thinking"></div><div class="model-review"></div></section>
+        <div class="footer"></div>
+      </div>`;
+    expect(style(".model-thinking", "display")?.value).not.toBe("none");
+    expect(style(".footer", "display")?.value).not.toBe("none");
+    expect(style(".model-list", "flex")).toMatchObject({ value: "0 1 calc(3 * 44px + 2 * 36px)" });
+    document.documentElement.classList.add("keyboard-open");
+    try {
+      expect(style(".model-helper", "display")).toMatchObject({ value: "none" });
+      expect(style(".model-thinking", "display")).toMatchObject({ value: "none" });
+      expect(style(".footer", "display")).toMatchObject({ value: "none" });
+      expect(style(".model-review", "display")?.value).not.toBe("none");
+      expect(style(".model-list", "flex")).toMatchObject({ value: "1 1 auto" });
+      expect(style(".model-panel", "flex")).toMatchObject({ value: "1 1 auto" });
+    } finally {
+      document.documentElement.classList.remove("keyboard-open");
+    }
+  });
+});
+
+/** A length the phone's sheet writes: px, or a calc() of px sums and products. */
+function px(value: string): number {
+  const sum = value.replace(/^calc\((.*)\)$/, "$1").replace(/px/g, "");
+  if (!/^[\d\s.+*-]+$/.test(sum)) throw new Error(`not a length: ${value}`);
+  return sum
+    .split("+")
+    .map((term) => term.split("*").reduce((product, n) => product * Number(n), 1))
+    .reduce((total, n) => total + n, 0);
+}
+
+/** `flex`'s grow, shrink and basis (null: auto, the content's height). */
+function flexOf(el: Element): { grow: number; shrink: number; basis: number | null } {
+  const won = phoneStyle(el, "flex");
+  const value = won?.value ?? "0 1 auto";
+  if (value === "none") return { grow: 0, shrink: 0, basis: null };
+  if (value === "auto") return { grow: 1, shrink: 1, basis: null };
+  const [grow = "0", shrink = "1", ...basis] = value.split(/\s+(?![^(]*\))/);
+  const b = basis.join(" ") || "0";
+  return { grow: Number(grow), shrink: Number(shrink), basis: b === "auto" ? null : px(b) };
+}
+
+/** Heights a flex column of `room` gives its items, by the CSS algorithm:
+ *  overflow is taken in proportion to shrink × basis, never below an item's
+ *  minimum; room left over goes by grow. */
+function column(room: number, items: { el: Element; content: number }[]): number[] {
+  const sized = items.map(({ el, content }) => {
+    const { grow, shrink, basis } = flexOf(el);
+    const min = phoneStyle(el, "min-height")?.value;
+    return {
+      grow,
+      shrink,
+      size: basis ?? content,
+      min: min === undefined || min === "auto" ? content : px(min === "0" ? "0px" : min),
+      frozen: false,
+    };
+  });
+  let free = room - sized.reduce((total, item) => total + item.size, 0);
+  if (free > 0) {
+    const grows = sized.reduce((total, item) => total + item.grow, 0);
+    if (grows > 0) for (const item of sized) item.size += (free * item.grow) / grows;
+    return sized.map((item) => item.size);
+  }
+  while (free < -0.5) {
+    const open = sized.filter((item) => !item.frozen && item.shrink > 0);
+    const scaled = open.reduce((total, item) => total + item.shrink * item.size, 0);
+    if (scaled === 0) break;
+    let clamped = false;
+    const share = free;
+    for (const item of open) {
+      const next = item.size + (share * item.shrink * item.size) / scaled;
+      if (next < item.min) {
+        free += item.size - item.min;
+        item.size = item.min;
+        item.frozen = clamped = true;
+      }
+    }
+    if (clamped) continue;
+    for (const item of open) item.size += (share * item.shrink * item.size) / scaled;
+    free = 0;
+  }
+  return sized.map((item) => item.size);
+}
+
+describe("on the iPhone, the Model panel in a session", () => {
+  beforeEach(() => document.documentElement.classList.add("platform-ios"));
+  afterEach(() => {
+    document.body.innerHTML = "";
+    document.documentElement.classList.remove("platform-ios");
+  });
+
+  it("opens at its own height over a long transcript, its list three rows", () => {
+    document.body.innerHTML = `
+      <div class="app app-session">
+        <div class="chat-head"></div>
+        <div class="transcript-frame"><div class="transcript"></div></div>
+        <div class="liveregion"></div>
+        <section class="model-panel"><header></header><div class="model-helper"></div>
+          <label class="model-search"><input /></label><div class="model-list"></div>
+          <div class="model-thinking"></div><div class="model-review"></div></section>
+        <div class="footer"></div>
+      </div>`;
+    const $ = (selector: string): Element => document.querySelector(selector)!;
+    // Measured in WebKit at 393x852: the panel's parts, header to Use model.
+    const HEAD = 65;
+    const ROW = 44;
+    const list = flexOf($(".model-list")).basis!;
+    const panel = HEAD + 45 + 64 + list + 106 + 82;
+    // 852 less the iPhone 16's safe areas; a full transcript, 4000px of it.
+    const [, transcript, , opened] = column(852 - 59 - 34, [
+      { el: $(".chat-head"), content: 90 },
+      { el: $(".transcript-frame"), content: 4000 },
+      { el: $(".liveregion"), content: 49 },
+      { el: $(".model-panel"), content: panel },
+      { el: $(".footer"), content: 44 },
+    ]);
+    expect(opened).toBeGreaterThan(HEAD + 3 * ROW);
+    expect(opened).toBe(panel);
+    expect(transcript).toBeLessThan(4000);
+    // When the room runs out the list scrolls, but keeps three rows and a heading.
+    expect(px(phoneStyle($(".model-list"), "min-height")!.value)).toBe(3 * ROW + 36);
+  });
 });
 
 describe("on the iPhone, a list's heading", () => {

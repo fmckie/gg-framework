@@ -12,7 +12,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
 import { defaultApi, hostData, responses as baseResponses } from "./base.mjs";
 import { coveredInPage, measureInPage } from "./measure.mjs";
 
@@ -102,7 +102,12 @@ function fakeTauri({ storage }) {
 }
 
 let browserPromise = null;
-const browser = () => (browserPromise ??= chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE }));
+// AUDIT_BROWSER=webkit: the engine the iPhone runs, for what Chromium can't show.
+const browser = () =>
+  (browserPromise ??=
+    process.env.AUDIT_BROWSER === "webkit"
+      ? webkit.launch()
+      : chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE }));
 export const closeBrowser = async () => (await browserPromise)?.close();
 
 /**
