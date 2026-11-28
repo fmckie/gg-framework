@@ -189,6 +189,30 @@ describe("Claude Sonnet 5.5", () => {
   });
 });
 
+describe("Claude Fable 5.2", () => {
+  it("replaces Fable 5.1 in the catalog, starting at Anthropic's default effort", () => {
+    const model = getModel("claude-fable-5-2");
+    expect(model).toEqual({
+      id: "claude-fable-5-2",
+      name: "Claude Fable 5.2",
+      provider: "anthropic",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      supportsImages: true,
+      supportsVideo: false,
+      costTier: "high",
+      defaultThinkingLevel: "high",
+      maxThinkingLevel: "max",
+    });
+    expect(getModelsForProvider("anthropic")).toContain(model);
+    expect(getDefaultThinkingLevel("claude-fable-5-2")).toBe("high");
+    for (const retired of ["claude-fable-5-1", "claude-fable-5"]) {
+      expect(getModel(retired), `${retired} retired`).toBeUndefined();
+    }
+  });
+});
+
 describe("Claude Haiku 5.5", () => {
   it("replaces Haiku 4.5 in the catalog", () => {
     const model = getModel("claude-haiku-5-5");

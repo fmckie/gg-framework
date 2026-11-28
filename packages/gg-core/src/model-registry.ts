@@ -47,9 +47,9 @@ export interface ModelInfo {
    *   - OpenAI GPT-6 Astra / GPT-6.1 Sol: `ultra` (Codex orchestration preset above `max`)
    *   - OpenAI GPT-6 Luna: `max`
    *   - OpenAI Pro/Codex/old: clamped to what the model accepts
-   *   - Claude Fable 5.1 / Fable 5 / Mythos 5, Opus 5.5, Sonnet 5.5 and
-   *     Haiku 5.5: `max` (the Fable / Mythos line uses always-on adaptive
-   *     thinking, low→max)
+   *   - Claude Fable 5.2 / Mythos 5, Opus 5.5, Sonnet 5.5 and Haiku 5.5:
+   *     `max` (the Fable / Mythos line uses always-on adaptive thinking,
+   *     low→max)
    *   - Kimi K3: `max` (always-on reasoning; currently the only API effort)
    *   - xAI Grok 4.6: `xhigh` (new top rung; 4.5 caps at `high`)
    *   - GLM / Kimi K2.x / Xiaomi / MiniMax / Qwen: `high` — binary-thinking
@@ -138,13 +138,15 @@ export const MODELS: ModelInfo[] = [
   // Project Glasswing (limited, invitation-only) model unavailable to most
   // users. Re-enable once it's generally available.
   {
-    // Released 2026-09-01 — replaces Fable 5 at the same $10/$50 MTok (cache
-    // reads drop to $0.25). Always-on adaptive thinking steered by effort;
-    // forced tool use is rejected with a 400, which gg-ai never sends on the
-    // Anthropic path. Fable 5 is retired here — a session that still has it
-    // saved falls back to the provider default on next start.
-    id: "claude-fable-5-1",
-    name: "Claude Fable 5.1",
+    // Released 2026-11-09 — replaces Fable 5.1 at $8/$40 MTok (5.1 was
+    // $10/$50); cache reads $0.20, writes $10 (5m) / $16 (1h). 1M context,
+    // 128K output, image input. Always-on adaptive thinking on all five effort
+    // levels (low→max, xhigh included), API default `high`; forced tool use is
+    // still rejected with a 400, which gg-ai never sends on the Anthropic path.
+    // Fable 5.1 is retired here — a session that still has it saved falls back
+    // to the provider default on next start.
+    id: "claude-fable-5-2",
+    name: "Claude Fable 5.2",
     provider: "anthropic",
     contextWindow: 1_000_000,
     maxOutputTokens: 128_000,
@@ -152,6 +154,9 @@ export const MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsVideo: false,
     costTier: "high",
+    // Anthropic's default and recommended starting effort; max is for the rare
+    // task where time and tokens don't matter.
+    defaultThinkingLevel: "high",
     maxThinkingLevel: "max",
   },
   // {
@@ -174,7 +179,7 @@ export const MODELS: ModelInfo[] = [
     // work". Fable-5.1-class output at $4/$20 MTok (40% below Opus 5), 1M
     // context, 128K output, image input. Same always-on adaptive thinking with
     // the full effort ladder (low→max, xhigh included; the API-side default
-    // effort is `medium`) and the same Fable 5.1 constraints gg-ai already
+    // effort is `medium`) and the same Fable 5.x constraints gg-ai already
     // handles (no forced tool use, thinking can't be disabled). Fast mode is
     // the separate `claude-opus-5-5-fast` entry below. Opus 5 is retired here — a session that
     // still has it saved falls back to the provider default on next start.

@@ -53,6 +53,17 @@ describe("resolveStartOrFallback", () => {
     expect(res.model).toBe(saved);
   });
 
+  it("starts a session pinned to a retired model on the provider's default", async () => {
+    for (const retired of ["claude-fable-5-1", "claude-fable-5"]) {
+      const res = await resolveStartOrFallback(auth("anthropic"), ALL, "anthropic", retired);
+      expect(res).toEqual({
+        provider: "anthropic",
+        model: getDefaultModel("anthropic").id,
+        loggedIn: true,
+      });
+    }
+  });
+
   it("ignores a saved model that belongs to a different provider", async () => {
     // Saved model is an OpenAI model but preferred is anthropic → default anthropic.
     const otherProviderModel = getDefaultModel("openai").id;
