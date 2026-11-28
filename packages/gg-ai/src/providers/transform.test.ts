@@ -1022,7 +1022,7 @@ describe("toAnthropicThinking", () => {
     "claude-sonnet-5-5",
     "claude-sonnet-5",
     "claude-opus-5-5",
-    "claude-fable-5-1",
+    "claude-fable-5-2",
     "claude-mythos-5",
   ])("requests summarized thinking text from %s", (model) => {
     expect(toAnthropicThinking("low", MAX_TOKENS, model).thinking).toEqual({
@@ -1038,8 +1038,8 @@ describe("toAnthropicThinking", () => {
     "claude-haiku-5.5",
     // Fable/Mythos 5.x accept xhigh (platform.claude.com effort docs); it used
     // to be clamped to high.
-    "claude-fable-5-1",
-    "claude-mythos-5-1",
+    "claude-fable-5-2",
+    "claude-mythos-5-2",
   ])("passes every adaptive effort through for %s", (model) => {
     for (const level of ["low", "medium", "high", "xhigh", "max"] as const) {
       expect(toAnthropicThinking(level, MAX_TOKENS, model)).toEqual({
@@ -1060,8 +1060,8 @@ describe("toAnthropicThinking", () => {
   });
 
   it("treats the Fable and Mythos line as adaptive thinking models with xhigh and max", () => {
-    // Anthropic's effort docs list xhigh and max on Fable 5 / 5.1 and Mythos 5.
-    for (const model of ["claude-fable-5-1", "claude-fable-5", "claude-mythos-5"]) {
+    // Anthropic's effort docs list xhigh and max on Fable 5 / 5.2 and Mythos 5.
+    for (const model of ["claude-fable-5-2", "claude-fable-5", "claude-mythos-5"]) {
       const result = toAnthropicThinking("max", MAX_TOKENS, model);
       expect(result.outputConfig).toEqual({ effort: "max" });
       expect((result.thinking as { type: string }).type).toBe("adaptive");
