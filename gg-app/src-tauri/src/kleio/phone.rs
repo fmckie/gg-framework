@@ -49,32 +49,56 @@ pub fn fill_screen(window: &tauri::WebviewWindow) {
 }
 
 /// Tell `Presence` when the app goes to the background, so the event streams
-/// close and the host sees that nobody is watching (and notifies). Coming back
-/// is `WindowEvent::Resumed`. Tauri's own "suspended" event cannot be used here:
-/// it fires when the app merely becomes inactive (Control Center, an incoming
+/// close and the host sees that nobody is watching (and notifies), and when it
+/// comes back, so they reconnect (`ON_SCREEN_NOTIFICATIONS` says why these and
+/// not tao's `Resumed`). Tauri's own "suspended" event cannot be used here: it
+/// fires when the app merely becomes inactive (Control Center, an incoming
 /// call banner) and has no matching event when that ends.
-pub fn watch_background(app: &tauri::AppHandle) {
-    let app = app.clone();
-    let on_background = block2::RcBlock::new(move |_note: *mut AnyObject| {
-        log::info!("kleio: app went to the background; closing event streams");
-        app.state::<Presence>().background();
-    });
-    // UIKit notification names are NSStrings equal to their symbol names.
-    let name = NSString::from_str("UIApplicationDidEnterBackgroundNotification");
-    // SAFETY: `defaultCenter` is the process-wide notification center. With a
-    // nil queue the block runs on the posting (main) thread. The center copies
-    // the block and keeps it, and the observer token, for the app's lifetime,
-    // which is how long this observer should live.
-    unsafe {
-        let center: *mut AnyObject = msg_send![class!(NSNotificationCenter), defaultCenter];
-        let _observer: *mut AnyObject = msg_send![
-            center,
-            addObserverForName: &*name,
-            object: std::ptr::null_mut::<AnyObject>(),
-            queue: std::ptr::null_mut::<AnyObject>(),
-            usingBlock: &*on_background
-        ];
+pub fn watch_on_screen(app: &tauri::AppHandle) {
+    for (name, visible) in super::ON_SCREEN_NOTIFICATIONS {
+        let app = app.clone();
+        let observe = block2::RcBlock::new(move |_note: *mut AnyObject| {
+            if visible {
+                back_on_screen(&app);
+            } else {
+                log::info!("kleio: app went to the background; closing event streams");
+                app.state::<Presence>().background();
+            }
+        });
+        // UIKit notification names are NSStrings equal to their symbol names.
+        let name = NSString::from_str(name);
+        // SAFETY: `defaultCenter` is the process-wide notification center. With
+        // a nil queue the block runs on the posting (main) thread. The center
+        // copies the block and keeps it, and the observer token, for the app's
+        // lifetime, which is how long this observer should live.
+        unsafe {
+            let center: *mut AnyObject = msg_send![class!(NSNotificationCenter), defaultCenter];
+            let _observer: *mut AnyObject = msg_send![
+                center,
+                addObserverForName: &*name,
+                object: std::ptr::null_mut::<AnyObject>(),
+                queue: std::ptr::null_mut::<AnyObject>(),
+                usingBlock: &*observe
+            ];
+        }
     }
+}
+
+/// The app is back on screen. iOS froze its sockets while it was away, so the
+/// event streams reconnect now; the host replays what was missed from each
+/// stream's Last-Event-ID.
+fn back_on_screen(app: &tauri::AppHandle) {
+    log::info!("kleio: app back on screen; reconnecting event streams");
+    // iOS may have taken the link's listener away while the app was
+    // suspended: it listens again before anything is told.
+    super::link::listen_again(app);
+    app.state::<Presence>().foreground();
+    // A push-token registration that failed earlier gets another go.
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        super::push::register_due(&app.state::<PushToken>()).await;
+        super::live::register_due(&app.state::<super::live::LiveTokens>()).await;
+    });
 }
 
 /// The app, for the push-token callbacks iOS makes into the app delegate. Those

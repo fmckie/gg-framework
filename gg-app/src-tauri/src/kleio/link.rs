@@ -881,13 +881,14 @@ fn block_on_within<F: Future>(
     tauri::async_runtime::block_on(async move { tokio::time::timeout(limit, task).await })
 }
 
-/// The app is coming back on screen (iPhone: `WindowEvent::Resumed`, before
-/// `Presence` tells anything else). iOS can take a suspended app's listening
+/// The app is coming back on screen (iPhone: UIKit's will-enter-foreground
+/// notification, kleio::phone::watch_on_screen, before `Presence` tells
+/// anything else). iOS can take a suspended app's listening
 /// socket away (Apple's TN2277): the app's requests to the link are then
 /// refused, and the listener never says so. So this checks something still
 /// listens, and if not listens again at once, before anything sends, then
 /// forwards on the new listener as soon as the runtime gets to it.
-#[cfg_attr(desktop, allow(dead_code))]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub fn listen_again(app: &AppHandle) {
     let Some(boot) = super::remote().and_then(Remote::link) else {
         return;
