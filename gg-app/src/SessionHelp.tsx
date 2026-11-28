@@ -2,7 +2,6 @@ import type React from "react";
 import {
   ArrowLeftIcon,
   BrainIcon,
-  CaretRightIcon,
   ChatCircleTextIcon,
   CheckSquareIcon,
   CpuIcon,
@@ -131,9 +130,7 @@ export function sessionHelpSections(mode: WorkspaceMode, phone: boolean): HelpSe
           id: "muse",
           icon: ChatCircleTextIcon,
           title: "Ask Helper",
-          body: phone
-            ? "Start a message with @help, or tap the @help button, to ask Helper. It answers alongside Kleio's work without stopping it, and it can read your project but not change it."
-            : "Start a message with @help to ask Helper. It answers alongside Kleio's work without stopping it, and it can read your project but not change it.",
+          body: "Start a message with @help to ask Helper. It answers alongside Kleio's work without stopping it, and it can read your project but not change it.",
         },
         {
           id: "autopilot",
@@ -192,11 +189,11 @@ export function sessionHelpSections(mode: WorkspaceMode, phone: boolean): HelpSe
 interface SessionHelpProps {
   mode: WorkspaceMode;
   onClose: () => void;
-  /** Defaults to the running platform; injectable for tests. */
+  /** Whose words: a tap or a click. Defaults to the running platform; injectable for tests. */
   phone?: boolean;
 }
 
-/** The session screen's guide: a card on the Mac, a bottom sheet on the iPhone. */
+/** The session screen's guide: one dialog, in the device's own words. */
 export function SessionHelp({
   mode,
   onClose,
@@ -204,41 +201,22 @@ export function SessionHelp({
 }: SessionHelpProps): React.ReactElement {
   const sections = sessionHelpSections(mode, phone);
   return (
-    <Modal
-      title="How this screen works"
-      onClose={onClose}
-      className={phone ? "session-help session-help-sheet" : "session-help"}
-    >
+    <Modal title="How this screen works" onClose={onClose} className="session-help">
       <div className="session-help-body">
         {sections.map((section) => (
           <section key={section.heading} className="session-help-section">
             <h3 className="session-help-heading">{section.heading}</h3>
-            {phone ? (
-              <div className="session-help-list">
-                {section.topics.map(({ id, icon: TopicIcon, title, body }) => (
-                  <details key={id} className="session-help-topic">
-                    <summary className="session-help-summary">
-                      <TopicIcon size={20} aria-hidden="true" className="session-help-icon" />
-                      <span className="session-help-title">{title}</span>
-                      <CaretRightIcon size={14} aria-hidden="true" className="session-help-caret" />
-                    </summary>
+            <ul className="session-help-grid">
+              {section.topics.map(({ id, icon: TopicIcon, title, body }) => (
+                <li key={id} className="session-help-row">
+                  <TopicIcon size={20} aria-hidden="true" className="session-help-icon" />
+                  <div>
+                    <div className="session-help-title">{title}</div>
                     <p className="session-help-text">{body}</p>
-                  </details>
-                ))}
-              </div>
-            ) : (
-              <ul className="session-help-grid">
-                {section.topics.map(({ id, icon: TopicIcon, title, body }) => (
-                  <li key={id} className="session-help-row">
-                    <TopicIcon size={20} aria-hidden="true" className="session-help-icon" />
-                    <div>
-                      <div className="session-help-title">{title}</div>
-                      <p className="session-help-text">{body}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+                  </div>
+                </li>
+              ))}
+            </ul>
           </section>
         ))}
       </div>

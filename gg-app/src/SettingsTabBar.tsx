@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import type { Icon } from "@phosphor-icons/react";
+import { isPhone } from "./platform";
 
 /**
  * The Settings screen's floating capsule of tabs, ported from yaatuber's
@@ -116,6 +117,9 @@ export function SettingsTabBar<Id extends string>({
     if (!target) return;
     const before = beforeRef.current;
     beforeRef.current = null;
+
+    // The phone's tray scrolls sideways: the open tab is always in it.
+    if (isPhone()) target.scrollIntoView?.({ block: "nearest", inline: "nearest" });
 
     const all = tabButtons(bar);
     for (const el of [pill, ...all]) cancelAnimations(el);

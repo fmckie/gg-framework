@@ -1,9 +1,8 @@
-// Groups on the desktop, as the cast draws them: each group is its first
+// Groups, as the cast draws them: each group is its first
 // members standing together on the lit shelf. Clicking one puts it in the
 // spotlight and shows its profile underneath (what was last said, who is in
 // it), which opens its room or its form. No mockup draws this page: it is put
 // together from the Specialists shelf's parts (CastList.tsx, kleio-cast.css).
-// The iPhone keeps the list of rows (GroupsPage.tsx).
 
 import { useEffect, useMemo, useState } from "react";
 import { PencilSimpleIcon } from "@phosphor-icons/react";
@@ -146,12 +145,17 @@ export function CastGroups({
               {replying > 0 && (
                 <span className="cast-pill is-live">
                   <span className="cast-dot" aria-hidden="true" />
-                  {`${replying} replying`}
+                  {replying}
+                  <span className="cast-pill-word"> replying</span>
                 </span>
               )}
             </span>
           )
         }
+        phoneMenu={[
+          ...(onOpenApps ? [{ label: "Connect apps", onSelect: onOpenApps }] : []),
+          ...(!welcome ? [{ label: "New group", onSelect: onCreate, disabled: noAgents }] : []),
+        ]}
         actions={
           <>
             {onOpenApps && <AppsButton onClick={onOpenApps} />}

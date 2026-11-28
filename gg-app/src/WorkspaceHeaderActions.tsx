@@ -18,7 +18,6 @@ export function WorkspaceHeaderActions({
   setShowScorecard,
   xpChips,
   workspaceMode,
-  phoneHeader,
   newSessionButton,
   brainButton,
   helpButton,
@@ -39,13 +38,13 @@ export function WorkspaceHeaderActions({
   windowFocused,
   hasCommit,
   submitText,
+  phone = false,
 }: {
   progress: ProgressSnapshot | null;
   rankCelebrateNonce: string | null;
   setShowScorecard: Dispatch<SetStateAction<boolean>>;
   xpChips: { id: string; label: string }[];
   workspaceMode: WorkspaceMode;
-  phoneHeader: boolean;
   newSessionButton: JSX.Element;
   brainButton: false | JSX.Element;
   helpButton: JSX.Element;
@@ -67,6 +66,9 @@ export function WorkspaceHeaderActions({
   windowFocused: boolean;
   hasCommit: boolean;
   submitText: (text: string, label?: string, opts?: { keepInput?: boolean }) => void;
+  /** The iPhone: Notes, Tasks, Checklist, the commit action and Help are in the
+   *  composer's More panel, so the tools are one line. */
+  phone?: boolean;
 }) {
   return (
     <>
@@ -86,11 +88,11 @@ export function WorkspaceHeaderActions({
       </div>
       {workspaceMode !== "code" ? (
         <span className="picker-head-actions">
-          {!phoneHeader && newSessionButton}
-          {!phoneHeader && brainButton}
+          {newSessionButton}
+          {brainButton}
           <RadioButton />
           <WindowLayoutButton />
-          {!phoneHeader && helpButton}
+          {helpButton}
         </span>
       ) : (
         <>
@@ -104,24 +106,28 @@ export function WorkspaceHeaderActions({
                 setKenPowerBanner(next ? "on" : "off");
               }}
             />
-            {!phoneHeader && newSessionButton}
-            <button
-              className="btn btn-sm btn-ghost"
-              title="Open your notes for this project"
-              onClick={() => setShowNotes(true)}
-            >
-              Notes
-            </button>
-            <button
-              className="btn btn-sm btn-ghost"
-              title="View and run this project's tasks"
-              onClick={openTasks}
-            >
-              {projectTasks.some((t) => t.status !== "done")
-                ? `Tasks (${projectTasks.filter((t) => t.status !== "done").length})`
-                : "Tasks"}
-            </button>
-            {checklistButton}
+            {newSessionButton}
+            {!phone && (
+              <button
+                className="btn btn-sm btn-ghost"
+                title="Open your notes for this project"
+                onClick={() => setShowNotes(true)}
+              >
+                Notes
+              </button>
+            )}
+            {!phone && (
+              <button
+                className="btn btn-sm btn-ghost"
+                title="View and run this project's tasks"
+                onClick={openTasks}
+              >
+                {projectTasks.some((t) => t.status !== "done")
+                  ? `Tasks (${projectTasks.filter((t) => t.status !== "done").length})`
+                  : "Tasks"}
+              </button>
+            )}
+            {!phone && checklistButton}
             <RadioButton />
             {/* <GazeButton /> */}
             <WindowLayoutButton
@@ -130,7 +136,7 @@ export function WorkspaceHeaderActions({
                 setToolsHiddenPersisted(true);
               }}
             />
-            {needsGitInit ? (
+            {phone ? null : needsGitInit ? (
               <button
                 className="btn btn-sm btn-ghost"
                 disabled={running}
@@ -157,7 +163,7 @@ export function WorkspaceHeaderActions({
                 </MetalButton>
               )
             )}
-            {!phoneHeader && helpButton}
+            {!phone && helpButton}
           </span>
         </>
       )}

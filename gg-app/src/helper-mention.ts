@@ -46,11 +46,6 @@ export function helperQuestion(draft: string): string | null {
   return match ? trimmed.slice(match[0].length).trim() : null;
 }
 
-/** Address a draft to the helper, keeping whatever is already typed. */
-export function withHelperMention(draft: string): string {
-  return addressesHelper(draft) ? draft : `${HELPER_MENTION} ${draft.trimStart()}`;
-}
-
 /** What the composer's round button does right now. */
 export type ComposerButtonAction = "send" | "stop";
 

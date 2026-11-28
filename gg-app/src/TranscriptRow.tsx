@@ -22,9 +22,8 @@ import type { Item } from "./transcript-item";
 import { ErrorNotice } from "./placeholder/ErrorNotice";
 import { SecurityNotice } from "./placeholder/SecurityNotice";
 import { PlanDecisionNotice } from "./placeholder/PlanDecisionNotice";
-import { isPhone } from "./platform";
 
-// The desktop's subagent rows and their cameos load when a turn first delegates.
+// The subagent rows and their cameos load when a turn first delegates.
 const OlympusRows = lazy(() =>
   import("./olympus/OlympusRows").then((m) => ({ default: m.OlympusRows })),
 );
@@ -454,9 +453,8 @@ function TranscriptRowBody({
         </div>
       );
     case "subagent_group": {
+      // The feed stands in while the rows load.
       const feed = <SubAgentFeed agents={item.agents} aborted={item.aborted} />;
-      // The iPhone keeps the feed; on the desktop it stands in while the rows load.
-      if (isPhone()) return feed;
       return (
         <Suspense fallback={feed}>
           <OlympusRows agents={item.agents} aborted={item.aborted} />

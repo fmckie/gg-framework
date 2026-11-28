@@ -327,9 +327,9 @@ describe("AppsPage", () => {
   });
 });
 
-// On the desktop the Composio key is added and removed here (the phone has it
-// on Setup), so this page says who may change it and where it is kept.
-describe("AppsPage's Composio key, on the desktop", () => {
+// The Composio key is added and removed here, so this page says who may change
+// it and where it is kept.
+describe("AppsPage's Composio key", () => {
   const ask = (): HTMLElement => screen.getByRole("button", { name: "Remove Composio key…" });
 
   it("ends with a Remove group that asks before removing the key", async () => {
@@ -448,7 +448,7 @@ describe("AppsPage's Composio key, on the desktop", () => {
 });
 
 // The desktop's page: the shelf, the quiet list under Add an app, and Remove.
-describe("AppsPage's shelf, on the desktop", () => {
+describe("AppsPage's shelf", () => {
   const NOW = Date.parse("2026-11-20T12:00:00Z");
   const D = 24 * 3600e3;
   const at = (ms: number): string => new Date(NOW - ms).toISOString();
@@ -805,119 +805,51 @@ describe("AppsPage's shelf, on the desktop", () => {
   });
 });
 
-describe("AppsPage's Composio key, on the phone", () => {
+// The iPhone draws the same page: the shelf, with the key's Remove at its end.
+describe("AppsPage on the iPhone", () => {
   beforeEach(() => {
     document.documentElement.classList.add("platform-ios");
   });
 
-  it("is left to Setup: nothing is asked of the host, and nothing is offered", async () => {
+  it("asks the host who may change the Composio key, and ends with Remove", async () => {
     await renderPage();
-    expect(getSetupStatus).not.toHaveBeenCalled();
-    expect(screen.queryByRole("region", { name: "Remove" })).toBeNull();
-    expect(screen.queryByText(/Set on the host itself/)).toBeNull();
+    expect(getSetupStatus).toHaveBeenCalled();
+    const group = screen.getByRole("region", { name: "Remove" });
+    expect(within(group).getByText("Composio key, saved on your host")).toBeTruthy();
   });
 
-  it("keeps the form to add a key when the host has none", async () => {
-    vi.mocked(getSetupStatus).mockResolvedValue(setup("missing", false));
-    vi.mocked(listConnections).mockResolvedValue({ configured: false, connections: [] });
-    await act(async () => {
-      render(<AppsPage />);
-    });
-    expect(await screen.findByLabelText("Composio API key")).toBeTruthy();
-    expect(screen.queryByText("Only your admin device can add the key.")).toBeNull();
-  });
-});
-
-// The phone keeps the page it had before the desktop's shelf: a "Your apps"
-// card, a grid of tiles with their descriptions, and Disconnect on each app.
-describe("AppsPage on the phone", () => {
-  beforeEach(() => {
-    document.documentElement.classList.add("platform-ios");
-  });
-
-  const GMAIL_CONNECTION = {
-    id: "conn-1",
-    toolkit: "gmail",
-    name: "Gmail",
-    logo: null,
-    status: "ACTIVE",
-    createdAt: "",
-  };
-
-  it("lists your apps in a card and the catalogue as tiles with their descriptions", async () => {
+  it("stands your apps on the shelf and lists the rest under Add an app, with no card or tiles", async () => {
     vi.mocked(listConnections).mockResolvedValue({
       configured: true,
       connections: [
-        GMAIL_CONNECTION,
-        { ...GMAIL_CONNECTION, id: "conn-2", toolkit: "notion", name: "Notion", status: "EXPIRED" },
+        {
+          id: "conn-1",
+          toolkit: "gmail",
+          name: "Gmail",
+          logo: null,
+          status: "ACTIVE",
+          createdAt: "",
+        },
       ],
     });
     await act(async () => {
       render(<AppsPage />);
     });
-    await screen.findByText("Docs and wikis.", {}, { timeout: 2000 });
-
-    expect(screen.getByText(/Connected apps work for Kleio and every specialist/)).toBeTruthy();
-    const mine = screen.getByText("Your apps").closest("section") as HTMLElement;
-    expect(within(mine).getByText("Kleio and your specialists can use these now.")).toBeTruthy();
-    expect(mine.querySelectorAll(".app-mine-row")).toHaveLength(2);
-    expect(within(mine).getByText("Connected")).toBeTruthy();
-    expect(within(mine).getByText("Expired — reconnect it")).toBeTruthy();
-    expect(within(mine).getByRole("button", { name: "Reconnect" })).toBeTruthy();
-
-    const add = screen.getByText("Add an app").closest("section") as HTMLElement;
-    expect(
-      within(add).getByText("Search hundreds of apps. Connecting opens your browser."),
-    ).toBeTruthy();
-    expect(add.querySelectorAll(".app-grid > .app-tile")).toHaveLength(2);
-    // A connected app stays in the catalogue, marked, with its description on show.
-    expect(within(add).getByText("Email by Google.")).toBeTruthy();
-    expect(within(add).getByText("Docs and wikis.")).toBeTruthy();
-    expect(within(add).getByText("Connected")).toBeTruthy();
-    expect(within(add).getByRole("button", { name: "Connect Notion" })).toBeTruthy();
-
-    // None of the desktop's page.
-    expect(document.querySelector(".ap-page, .ap-shelf, .ap-add-list")).toBeNull();
-    expect(screen.queryByRole("region", { name: "Remove" })).toBeNull();
-  });
-
-  it("asks on the app itself before disconnecting it", async () => {
-    vi.mocked(listConnections).mockResolvedValue({
-      configured: true,
-      connections: [GMAIL_CONNECTION],
-    });
-    vi.mocked(disconnect).mockResolvedValue(undefined);
-    await act(async () => {
-      render(<AppsPage />);
-    });
     await screen.findByText("Notion", {}, { timeout: 2000 });
-    const mine = screen.getByText("Your apps").closest("section") as HTMLElement;
-    fireEvent.click(within(mine).getByRole("button", { name: "Disconnect Gmail" }));
-    expect(disconnect).not.toHaveBeenCalled();
-    const confirm = within(mine).getByRole("group", { name: "Disconnect Gmail?" });
-    expect(within(confirm).getByRole("button", { name: "Keep" })).toBeTruthy();
-    fireEvent.click(within(confirm).getByRole("button", { name: "Disconnect" }));
-    await waitFor(() => expect(disconnect).toHaveBeenCalledWith("conn-1"));
+
+    expect(document.querySelector(".ap-page .ap-shelf")).not.toBeNull();
+    expect(document.querySelectorAll(".ap-add-list .ap-add-row")).toHaveLength(1);
+    expect(document.querySelector(".app-mine-row, .app-grid, .app-tile")).toBeNull();
+    expect(screen.queryByText("Your apps")).toBeNull();
   });
 
-  it("says in an alert when the host couldn't be reached", async () => {
-    vi.mocked(listConnections).mockRejectedValue(new KleioApiError(0, "host unreachable"));
-    await act(async () => {
-      render(<AppsPage />);
-    });
-    const alert = await screen.findByRole("alert");
-    expect(alert.className).toContain("kleio-error");
-    expect(alert.textContent).toBe("host unreachable");
-  });
-
-  it("says apps aren't set up yet when the host has no Composio key", async () => {
+  it("tells a device that isn't the admin who can add the key, in place of the form", async () => {
+    vi.mocked(getSetupStatus).mockResolvedValue(setup("missing", false));
     vi.mocked(listConnections).mockResolvedValue({ configured: false, connections: [] });
     await act(async () => {
       render(<AppsPage />);
     });
-    expect(await screen.findByText("Apps aren't set up yet")).toBeTruthy();
-    expect(screen.getByText("Apps connect through Composio on your host.")).toBeTruthy();
-    expect(screen.getByText(/Add a Composio API key and Gmail, Calendar, Notion/)).toBeTruthy();
-    expect(document.querySelector(".ap-page, .ap-shelf")).toBeNull();
+    expect(await screen.findByText("Only your admin device can add the key.")).toBeTruthy();
+    expect(screen.queryByLabelText("Composio API key")).toBeNull();
   });
 });

@@ -1,5 +1,4 @@
 import { lazy, Suspense, useMemo, type ComponentType } from "react";
-import { isPhone } from "../platform";
 import type { Item } from "../transcript-item";
 import type { LaneGroup } from "./OlympusLane";
 
@@ -27,12 +26,12 @@ export function liveGroups(items: readonly Item[]): Group[] {
 }
 
 /**
- * Where the lane goes in a session, over the activity line. Nothing on the
- * iPhone, and nothing, the lane's chunk included, until an agent is at work.
+ * Where the lane goes in a session, over the activity line. Nothing, the
+ * lane's chunk included, until an agent is at work.
  */
 export function LaneMount({ items }: { items: readonly Item[] }): React.ReactElement | null {
   const groups = useMemo(() => liveGroups(items), [items]);
-  if (groups.length === 0 || isPhone()) return null;
+  if (groups.length === 0) return null;
   return (
     <Suspense fallback={null}>
       <OlympusLane groups={groups} />

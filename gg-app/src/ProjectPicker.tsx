@@ -25,7 +25,6 @@ import { HostFoldersModal } from "./HostFoldersModal";
 import { MetalButton } from "./MetalButton";
 import { useWindowFocused } from "./useWindowFocused";
 import { useKleioRemote } from "./kleio/useKleioRemote";
-import { isPhone } from "./platform";
 
 /**
  * Does this row point at another tool's transcript rather than a GG Coder
@@ -35,8 +34,8 @@ function isForeignSession(session: RecentSession): boolean {
   return session.source === "claude-code" || session.source === "codex";
 }
 
-// Where a row comes from: a dot in the source's colour and a quiet label on
-// the desktop (kleio-theme.css, "The Projects list"); the iPhone's tinted pill.
+// Where a row comes from: a dot in the source's colour and a quiet label
+// (kleio-theme.css, "The Projects list").
 function SourceTag({
   source,
   className,
@@ -45,13 +44,6 @@ function SourceTag({
   className?: string;
 }): React.ReactElement {
   const { label, color } = sourceStyle(source);
-  if (isPhone()) {
-    return (
-      <Badge className={className} color={color}>
-        {label}
-      </Badge>
-    );
-  }
   return (
     <span className={className ? `source-tag ${className}` : "source-tag"}>
       <i className="source-tag-dot" style={{ background: color }} aria-hidden="true" />
@@ -99,8 +91,6 @@ export function ProjectPicker({
   // Paired with a Kleio host: projects live on ITS disk, which this Mac's
   // Finder can't see, so "Open existing" lists the host's folders instead.
   const remoteHost = useKleioRemote().status?.active?.host ?? null;
-  // The desktop's stylesheet colours a row's name, so it can turn on hover.
-  const nameStyle = isPhone() ? { color: theme.text } : undefined;
 
   const q = query.trim().toLowerCase();
   const filteredProjects = q
@@ -363,9 +353,7 @@ export function ProjectPicker({
                 <div key={p.path} className="picker-item-wrap">
                   <button className="picker-item" onClick={() => openProject(p)} title={p.path}>
                     <span className="picker-row">
-                      <span className="picker-name" style={nameStyle}>
-                        {p.name}
-                      </span>
+                      <span className="picker-name">{p.name}</span>
                       <Badge>{p.lastActiveDisplay}</Badge>
                     </span>
                     <span className="picker-sources">
@@ -426,7 +414,7 @@ export function ProjectPicker({
                     }
                   >
                     <span className="picker-row">
-                      <span className="picker-name picker-preview" style={nameStyle}>
+                      <span className="picker-name picker-preview">
                         {s.preview || "(no preview)"}
                       </span>
                       <Badge>{s.lastActiveDisplay}</Badge>

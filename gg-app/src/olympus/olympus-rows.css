@@ -1,7 +1,7 @@
-/* Olympus, part 1: the subagents of a turn in the desktop transcript. One row
+/* Olympus, part 1: the subagents of a turn in the transcript. One row
    each: its god's cameo in the gutter, the god's name and the task in slate
    teal, then its state, what it is doing now or how it ended, and its time.
-   Drawn only on the desktop (TranscriptRow.tsx); the iPhone keeps the feed.
+   Drawn on the desktop and the iPhone alike (TranscriptRow.tsx).
    Nothing here moves: a row's state is its rim, its cameo and its words. */
 .oly-rows {
   /* Slate teal, the subagents' own: 6.9:1 or more where the rows sit. */

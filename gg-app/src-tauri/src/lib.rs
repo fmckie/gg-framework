@@ -393,9 +393,10 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             app.manage(MinimizeState::default());
             // kleio (iPhone): close the event streams whenever the app goes to
-            // the background, so the host sees nobody watching and notifies.
+            // the background, so the host sees nobody watching and notifies,
+            // and reconnect them when it is back.
             #[cfg(target_os = "ios")]
-            kleio::phone::watch_background(app.handle());
+            kleio::phone::watch_on_screen(app.handle());
             // kleio (iPhone): a tapped notification opens what it is about.
             // Must be in place before launch finishes; this is that moment.
             #[cfg(target_os = "ios")]
@@ -527,23 +528,19 @@ pub fn run() {
             tauri::WindowEvent::Resized(_) => {
                 restore_sibling_windows(window);
             }
-            // kleio: the iPhone app is back on screen. iOS froze its sockets
+            // kleio: a phone app is back on screen. iOS froze its sockets
             // while it was away, so reconnect the event streams now; the host
-            // replays what was missed from each stream's Last-Event-ID.
-            #[cfg(mobile)]
+            // replays what was missed from each stream's Last-Event-ID. The
+            // iPhone hears it from UIKit instead (kleio::phone::watch_on_screen):
+            // under the scene lifecycle tao never sends `Resumed` there.
+            #[cfg(all(mobile, not(target_os = "ios")))]
             tauri::WindowEvent::Resumed => {
                 log::info!("kleio: app resumed; reconnecting event streams");
                 let app = window.app_handle().clone();
-                // iOS may have taken the link's listener away while the app
-                // was suspended: it listens again before anything is told.
-                #[cfg(target_os = "ios")]
-                kleio::link::listen_again(&app);
                 app.state::<kleio::Presence>().foreground();
                 // A push-token registration that failed earlier gets another go.
                 tauri::async_runtime::spawn(async move {
                     kleio::push::register_due(&app.state::<kleio::push::PushToken>()).await;
-                    #[cfg(target_os = "ios")]
-                    kleio::live::register_due(&app.state::<kleio::live::LiveTokens>()).await;
                 });
             }
             // Debounced: native drag fires Moved per pixel. Only the last move's

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { theme } from "./theme";
 import { Modal } from "./Modal";
+import { isPhone } from "./platform";
 import { createProject, ProjectExistsError, selectProject, setProjectHidden } from "./agent";
 
 interface Props {
@@ -98,7 +99,17 @@ export function NewProjectModal({ projectsRoot, onClose, onCreated }: Props): Re
           Cancel
         </button>
         <button className="modal-btn primary" disabled={!canCreate} onClick={() => void create()}>
-          {taken ? (busy ? "Opening\u2026" : `Open ${slug}`) : busy ? "Creating\u2026" : "Create"}
+          {/* The hint above names the folder: on a phone the whole name ran
+              the button to three lines. */}
+          {taken
+            ? busy
+              ? "Opening\u2026"
+              : isPhone()
+                ? "Open it"
+                : `Open ${slug}`
+            : busy
+              ? "Creating\u2026"
+              : "Create"}
         </button>
       </div>
     </Modal>

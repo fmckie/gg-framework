@@ -63,5 +63,10 @@
 	<string>Kleio uses the camera to scan the pairing QR code from your host or computer.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Kleio uses your microphone when you talk to Kleio, or tap the mic to dictate a message.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

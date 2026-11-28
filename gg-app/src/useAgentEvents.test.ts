@@ -1247,7 +1247,7 @@ describe("useAgentEvents", () => {
       expect(getItems()).toEqual([]);
     });
 
-    it("leaves the iPhone as it was: Helper's row alone, and gone with the reset", () => {
+    it("leaves the same two rows on the iPhone, and keeps them through the reset", () => {
       document.documentElement.classList.add("platform-ios");
       try {
         const { hook, getItems } = setup();
@@ -1257,11 +1257,13 @@ describe("useAgentEvents", () => {
           );
           hook.result.current.handleEvent(ev("autopilot_plan_accepted", {}));
         });
-        expect(getItems()).toEqual([
+        const rows = [
+          expect.objectContaining({ kind: "plan_decision", decision: "accepted" }),
           expect.objectContaining({ kind: "autopilot", phase: "plan_approved" }),
-        ]);
+        ];
+        expect(getItems()).toEqual(rows);
         act(() => hook.result.current.handleEvent(ev("session_reset", { planTotal: 1 })));
-        expect(getItems()).toEqual([]);
+        expect(getItems()).toEqual(rows);
       } finally {
         document.documentElement.classList.remove("platform-ios");
       }

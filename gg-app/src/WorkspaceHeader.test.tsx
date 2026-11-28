@@ -248,6 +248,7 @@ describe("WorkspaceHeader", () => {
   });
 });
 
+// The iPhone draws the desktop's header; kleio-phone.css wraps its two rows.
 describe("WorkspaceHeader on the iPhone", () => {
   beforeEach(() => document.documentElement.classList.add("platform-ios"));
   afterEach(() => document.documentElement.classList.remove("platform-ios"));
@@ -267,74 +268,57 @@ describe("WorkspaceHeader on the iPhone", () => {
         navHidden={navHidden}
         onToggleNav={() => setNavHidden((hidden) => !hidden)}
         connection={<button>on mac-mini-1</button>}
-        leading={<button>Back</button>}
-        trailing={<button>New</button>}
       >
+        <button>Back</button>
         <button>Notes</button>
       </WorkspaceHeader>
     );
   }
 
-  it("puts back, the name and New on the top row, with the status under the name", () => {
+  it("draws the desktop's title strip: the title with its branch and counts, the host, the toggle", () => {
     const { container } = render(<PhoneHeaderHarness />);
 
-    const topRow = Array.from(container.querySelector(".chat-head-strip")?.children ?? []);
-    expect(topRow.map((el) => el.textContent || el.getAttribute("aria-label"))).toEqual([
-      "Back",
-      "kleio-websiteon mac-mini-1│4 issues│1 PR",
-      "New",
-      "Hide nav buttons",
+    const strip = Array.from(container.querySelector(".chat-head-strip")?.children ?? []);
+    expect(strip.map((el) => el.className || el.textContent)).toEqual([
+      "chat-head-title",
+      "on mac-mini-1",
+      "nav-toggle",
     ]);
-    expect(screen.getByRole("heading", { level: 1, name: "kleio-website" })).toBeDefined();
-    expect(container.querySelector(".chat-head-sub")?.textContent).toBe(
-      "on mac-mini-1│4 issues│1 PR",
+    expect(container.querySelector(".chat-head-title")?.textContent).toBe(
+      "kleio-website│⎇ main│3 uncommitted│4 issues│1 PR",
     );
-    // The branch and the uncommitted count stay off, as in a narrow window.
-    expect(screen.queryByText("⎇ main")).toBeNull();
-    expect(screen.queryByText("uncommitted")).toBeNull();
+    // No title of its own: the name over a line of status is gone.
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(container.querySelector(".chat-head-titles, .chat-head-sub")).toBeNull();
   });
 
-  it("keeps back and New when the tools row is hidden", () => {
-    render(<PhoneHeaderHarness />);
+  it("keeps Back with the tools, in the row the toggle hides", () => {
+    const { container } = render(<PhoneHeaderHarness />);
+    const tools = container.querySelector(".chat-head-nav");
+    expect(Array.from(tools?.children ?? []).map((el) => el.textContent)).toEqual([
+      "Back",
+      "Notes",
+    ]);
 
     fireEvent.click(screen.getByRole("button", { name: "Hide nav buttons" }));
 
-    expect(screen.queryByRole("button", { name: "Notes" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Back" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "New" })).toBeDefined();
-  });
-
-  it("drops the tools row and its toggle when the top row holds every control", () => {
-    render(
-      <WorkspaceHeader
-        workspaceMode="chat"
-        cwd="/work/kleio-projects"
-        navHidden={false}
-        onToggleNav={() => {}}
-        trailing={<button>Brain</button>}
-        tools={false}
-      >
-        <button>Window layout</button>
-      </WorkspaceHeader>,
-    );
-
-    expect(screen.getByRole("button", { name: "Brain" })).toBeDefined();
-    expect(screen.queryByRole("button", { name: "Hide nav buttons" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Window layout" })).toBeNull();
+    expect(container.querySelector(".chat-head-nav")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Show nav buttons" })).toBeDefined();
   });
 
   it("titles a session without a folder with the product's name", () => {
-    render(
+    const { container } = render(
       <WorkspaceHeader workspaceMode="chat" navHidden onToggleNav={() => {}}>
         <button>Brain</button>
       </WorkspaceHeader>,
     );
 
-    expect(screen.getByRole("heading", { level: 1, name: "Kleio Chat" })).toBeDefined();
+    expect(container.querySelector(".chat-head-title")?.textContent).toBe("Kleio Chat");
   });
 });
 
-describe("a Chat's title on the desktop", () => {
+describe("a Chat's title", () => {
   function renderChat(sessionTitle?: string, onOpenChats = vi.fn()): ReturnType<typeof vi.fn> {
     render(
       <WorkspaceHeader
@@ -390,13 +374,16 @@ describe("a Chat's title on the desktop", () => {
     expect(screen.queryByRole("button", { name: "Chats" })).toBeNull();
   });
 
-  it("keeps the project's name on the iPhone", () => {
+  it("reads the same on the iPhone", () => {
     document.documentElement.classList.add("platform-ios");
     try {
-      renderChat("Plan my week");
-      expect(screen.getByRole("heading", { name: "kleio-projects" })).toBeDefined();
-      expect(screen.queryByRole("button", { name: "Chats" })).toBeNull();
-      expect(screen.queryByText("Plan my week")).toBeNull();
+      const onOpenChats = renderChat("Plan my week");
+      expect(screen.getByRole("navigation", { name: "Chat identity" }).textContent).toBe(
+        "Chats/Plan my week",
+      );
+      expect(screen.queryByText("kleio-projects")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Chats" }));
+      expect(onOpenChats).toHaveBeenCalledOnce();
     } finally {
       document.documentElement.classList.remove("platform-ios");
     }

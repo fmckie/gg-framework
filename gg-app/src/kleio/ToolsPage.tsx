@@ -1,11 +1,10 @@
-// Settings → Tools, on the desktop: the workbench. One row per MCP server, its
+// Settings → Tools: the workbench. One row per MCP server, its
 // tools drawn as ticks on one shared scale; a server that needs something has
 // Sign in or Fix on its row; Add sits beside its field and Remove ends the page.
 // A row shows a server's kind and a short form only (its host, or its program's
 // name): the whole command or address can hold a key, so it is the name's
-// tooltip and appears in Fix's step once Fix is pressed. The phone keeps
-// McpModal (settingsLayout.tsx), whose loading this repeats until the iPhone
-// slice.
+// tooltip and appears in Fix's step once Fix is pressed. McpModal is still
+// upstream's dialog, so its loading is repeated here.
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react";

@@ -31,53 +31,24 @@ describe("the groups the lane is mounted for", () => {
   });
 });
 
-// In this order: the first four show the lane's chunk was never asked for,
-// which only holds until the last one asks for it.
+// In this order: the first show the lane's chunk was never asked for, which
+// only holds until the desktop's lane asks for it.
 describe("where the lane goes in a session", () => {
-  it("on the iPhone: no lane, and its chunk is never loaded", async () => {
-    document.documentElement.classList.add("platform-ios");
-    const { container } = render(<LaneMount items={[text, live]} />);
-    await settle();
-    expect(container.innerHTML).toBe("");
-    expect(laneChunk.loads).toBe(0);
-  });
+  const platforms = [
+    ["the desktop", "platform-macos"],
+    ["the iPhone", "platform-ios"],
+  ] as const;
 
-  it("on the iPhone: nothing to startle: a click or a key reaches no lane, and no start's picture is asked for", async () => {
-    document.documentElement.classList.add("platform-ios");
-    const { container } = render(<LaneMount items={[text, live]} />);
-    await settle();
-    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    for (const key of ["Enter", " "])
-      document.body.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
-    await settle();
-    expect(container.innerHTML).toBe("");
-    expect(
-      document.querySelector(".oly-cell, .oly-p-start, .is-startable, img[src*='-start']"),
-    ).toBeNull();
-    expect(laneChunk.loads).toBe(0);
-  });
-
-  it("on the iPhone: more agents than a lane holds, and no medallion: no lane, no chunk", async () => {
-    document.documentElement.classList.add("platform-ios");
-    const crowd: Item = { kind: "subagent_group", id: 43, agents: agentsAt(MOCK_CROWD, 12_000) };
-    expect(crowd.kind === "subagent_group" && crowd.agents.length).toBeGreaterThan(5);
-    const { container } = render(<LaneMount items={[text, crowd]} />);
-    await settle();
-    expect(container.innerHTML).toBe("");
-    expect(document.querySelector(".oly-medal, .oly-lane")).toBeNull();
-    expect(laneChunk.loads).toBe(0);
-  });
-
-  it("on the desktop, a chat with no subagents: no lane, no chunk", async () => {
-    document.documentElement.classList.add("platform-macos");
+  it.each(platforms)("on %s, a chat with no subagents: no lane, no chunk", async (_, platform) => {
+    document.documentElement.classList.add(platform);
     const { container } = render(<LaneMount items={[text]} />);
     await settle();
     expect(container.innerHTML).toBe("");
     expect(laneChunk.loads).toBe(0);
   });
 
-  it("on the desktop, a resumed chat's rows: no lane, no chunk", async () => {
-    document.documentElement.classList.add("platform-macos");
+  it.each(platforms)("on %s, a resumed chat's rows: no lane, no chunk", async (_, platform) => {
+    document.documentElement.classList.add(platform);
     const { container } = render(<LaneMount items={[text, resumed]} />);
     await settle();
     expect(container.innerHTML).toBe("");
@@ -104,5 +75,27 @@ describe("where the lane goes in a session", () => {
     expect(lane.querySelector("[role='toolbar']")?.getAttribute("aria-label")).toBe(
       "Subagents on the lane",
     );
+  });
+
+  it("on the iPhone, once an agent is at work: the same lane, from the same chunk", async () => {
+    document.documentElement.classList.add("platform-ios");
+    const { container } = render(<LaneMount items={[text, live]} />);
+    await waitFor(() => expect(container.querySelector(".oly-lane")).not.toBeNull());
+    expect(laneChunk.loads).toBe(1);
+    expect([...container.children].map((el) => el.classList[0])).toEqual([
+      "oly-card-anchor",
+      "oly-lane",
+    ]);
+    expect(container.querySelector(".oly-lane [role='toolbar']")?.getAttribute("aria-label")).toBe(
+      "Subagents on the lane",
+    );
+  });
+
+  it("on the iPhone, more agents than a lane holds: the lane mounts all the same", async () => {
+    document.documentElement.classList.add("platform-ios");
+    const crowd: Item = { kind: "subagent_group", id: 43, agents: agentsAt(MOCK_CROWD, 12_000) };
+    expect(crowd.kind === "subagent_group" && crowd.agents.length).toBeGreaterThan(5);
+    const { container } = render(<LaneMount items={[text, crowd]} />);
+    await waitFor(() => expect(container.querySelector(".oly-lane")).not.toBeNull());
   });
 });

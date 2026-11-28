@@ -194,3 +194,27 @@ describe("SettingsTabBar", () => {
     expect(document.querySelectorAll(".settings-tab-alert")).toHaveLength(1);
   });
 });
+
+describe("SettingsTabBar on the iPhone", () => {
+  afterEach(() => {
+    document.documentElement.classList.remove("platform-ios");
+    Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+  });
+
+  it("scrolls the open tab into its sideways tray; the desktop's never scrolls", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const desktop = render(<Harness />);
+    fireEvent.click(screen.getByRole("tab", { name: "Steroids" }));
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    desktop.unmount();
+
+    document.documentElement.classList.add("platform-ios");
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("tab", { name: "Steroids" }));
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest", inline: "nearest" });
+    expect(scrollIntoView.mock.contexts[scrollIntoView.mock.contexts.length - 1]).toBe(
+      screen.getByRole("tab", { name: "Steroids" }),
+    );
+  });
+});

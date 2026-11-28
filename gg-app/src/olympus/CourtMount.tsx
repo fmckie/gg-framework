@@ -1,5 +1,4 @@
 import { lazy, Suspense, type ComponentType } from "react";
-import { isPhone } from "../platform";
 import type { CourtProps } from "./OlympusCourt";
 
 type Props = Omit<CourtProps, "stage">;
@@ -12,10 +11,9 @@ const OlympusCourt = lazy((): Promise<{ default: ComponentType<Props> }> =>
   ),
 );
 
-// Where the courtyard goes in a goal's Workers view, over the rows. Nothing on
-// the iPhone, its chunk included.
-export function CourtMount(props: Props): React.ReactElement | null {
-  if (isPhone()) return null;
+// Where the courtyard goes in a goal's Workers view, over the rows, on the
+// desktop and the iPhone alike.
+export function CourtMount(props: Props): React.ReactElement {
   return (
     <Suspense fallback={null}>
       <OlympusCourt {...props} />

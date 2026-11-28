@@ -5,12 +5,114 @@
 // sidebar collapses from the header's sidebar button (remembered between
 // visits); below 900px it slides over the chat instead (see kleio-pages.css).
 
-import { useCallback, useEffect, useId, useState, useSyncExternalStore } from "react";
-import { NotePencilIcon, PlugsIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { DotsThreeIcon, NotePencilIcon, PlugsIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import { BackButton } from "../BackButton";
 import { isPhone } from "../platform";
 import { RadioButton } from "../RadioButton";
 import { WindowLayoutButton } from "../WindowLayoutButton";
+
+/** One of the phone header's menu entries: a header button it has no room for. */
+export interface KleioMenuItem {
+  label: string;
+  onSelect: () => void;
+  disabled?: boolean;
+}
+
+/** The phone header's "⋯": the buttons the desktop's header has a row for.
+ *  `extra` (a field, say) sits under the entries; the popup is then a small
+ *  dialog rather than a menu, since a menu holds only its entries. */
+export function KleioMenu({
+  items,
+  label = "More",
+  extra,
+}: {
+  items: readonly KleioMenuItem[];
+  label?: string;
+  extra?: React.ReactNode;
+}): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    const onOutside = (event: PointerEvent): void => {
+      const target = event.target as Node;
+      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onOutside, true);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onOutside, true);
+    };
+  }, [open]);
+
+  function moveFocus(event: React.KeyboardEvent<HTMLDivElement>): void {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const entries = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
+    );
+    const at = entries.indexOf(document.activeElement as HTMLButtonElement);
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    entries[(at + step + entries.length) % entries.length]?.focus();
+  }
+
+  return (
+    <span className="kleio-menu-wrap">
+      <button
+        ref={triggerRef}
+        type="button"
+        className="btn btn-ghost btn-icon kleio-menu-btn"
+        aria-label={label}
+        title={label}
+        aria-haspopup={extra ? "dialog" : "menu"}
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <DotsThreeIcon size={20} weight="bold" aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          ref={menuRef}
+          id={id}
+          className="kleio-menu"
+          role={extra ? "dialog" : "menu"}
+          aria-label={label}
+          onKeyDown={moveFocus}
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role={extra ? undefined : "menuitem"}
+              disabled={item.disabled}
+              onClick={() => {
+                setOpen(false);
+                item.onSelect();
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+          {extra}
+        </div>
+      )}
+    </span>
+  );
+}
 
 export function KleioHead({
   backLabel = "Back",
@@ -21,6 +123,7 @@ export function KleioHead({
   subtitle,
   status,
   actions,
+  phoneMenu,
 }: {
   backLabel?: string;
   onBack: () => void;
@@ -29,31 +132,37 @@ export function KleioHead({
   /** Before the title, e.g. the agent's blob. */
   leading?: React.ReactNode;
   title: string;
-  /** A chat's state. Beside the title on the desktop; under it on the iPhone,
-   *  so the header keeps to one row with its actions. */
+  /** A chat's state, beside the title. */
   subtitle?: React.ReactNode;
   /** Beside the title: count badges, state, search. */
   status?: React.ReactNode;
   /** Right-aligned, before the radio and window-layout buttons. */
   actions?: React.ReactNode;
+  /** The phone's one row: `tools` and `actions` as the entries of one "⋯". */
+  phoneMenu?: readonly KleioMenuItem[];
 }): React.ReactElement {
-  const stacked = isPhone() && Boolean(subtitle);
+  if (phoneMenu && isPhone())
+    return (
+      <div className="picker-head kleio-head has-menu" data-tauri-drag-region>
+        <BackButton label={backLabel} onClick={onBack} />
+        {leading}
+        <h1 className="picker-title">{title}</h1>
+        {subtitle}
+        {status}
+        {phoneMenu.length > 0 && (
+          <span className="picker-head-actions">
+            <KleioMenu items={phoneMenu} />
+          </span>
+        )}
+      </div>
+    );
   return (
     <div className="picker-head kleio-head" data-tauri-drag-region>
       <BackButton label={backLabel} onClick={onBack} />
       {tools && <span className="kleio-head-tools">{tools}</span>}
       {leading}
-      {stacked ? (
-        <div className="kleio-head-titles">
-          <h1 className="picker-title">{title}</h1>
-          <div className="kleio-head-sub">{subtitle}</div>
-        </div>
-      ) : (
-        <>
-          <h1 className="picker-title">{title}</h1>
-          {subtitle}
-        </>
-      )}
+      <h1 className="picker-title">{title}</h1>
+      {subtitle}
       {status}
       <span className="picker-head-actions">
         {actions}

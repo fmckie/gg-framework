@@ -333,29 +333,21 @@ describe("the Goals browser, with the real theme loaded", () => {
 });
 
 describe("GoalList on the iPhone", () => {
-  it("keeps the plain list and the form in the page", async () => {
+  it("is the desktop's browser, and New goal is its dialog", async () => {
     document.documentElement.classList.add("platform-ios");
     try {
-      const { onChosen } = renderList([GOAL]);
+      renderList([GOAL]);
 
-      expect(await screen.findByText("Choose a goal")).toBeDefined();
-      expect(document.querySelector(".goal-browser")).toBeNull();
-      expect(screen.getByRole("textbox", { name: "Search goals" })).toBeDefined();
-      expect(screen.queryByRole("searchbox")).toBeNull();
+      expect((await screen.findByRole("heading", { name: /Goals/ })).textContent).toBe("Goals 1");
+      expect(document.querySelector(".goal-browser")).not.toBeNull();
+      expect(document.querySelector(".placeholder-goals, .placeholder-list")).toBeNull();
+      expect(screen.getByRole("searchbox", { name: "Search goals" })).toBeDefined();
       expect(screen.getByText(/2 folders · 1 file/)).toBeDefined();
 
-      fireEvent.click(screen.getByRole("button", { name: "New goal" }));
-      expect(screen.queryByRole("dialog")).toBeNull();
-      expect(screen.getByRole("form", { name: "New goal" }).className).toBe("placeholder-form");
-      fireEvent.keyDown(screen.getByLabelText("Name"), { key: "Escape" });
-      expect(screen.queryByRole("form")).toBeNull();
-
-      fireEvent.click(screen.getByRole("button", { name: "Delete API latency" }));
-      expect(screen.getByRole("alertdialog", { name: "Delete goal" })).toBeDefined();
-      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-
-      fireEvent.click(screen.getByRole("button", { name: "API latency" }));
-      await waitFor(() => expect(onChosen).toHaveBeenCalledWith(GOAL.path));
+      fireEvent.click(screen.getByRole("button", { name: "+ New goal" }));
+      const dialog = screen.getByRole("dialog", { name: "New goal" });
+      expect(dialog.classList.contains("goal-form-modal")).toBe(true);
+      expect(screen.getByRole("form", { name: "New goal" }).className).toBe("goal-form");
     } finally {
       document.documentElement.classList.remove("platform-ios");
     }

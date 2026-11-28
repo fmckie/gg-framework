@@ -696,7 +696,6 @@ describe("the lane's CSS", () => {
       "dragover",
       "inputwrap",
       "liveregion",
-      "platform-ios",
       "task-activity",
     ]);
     const rows = names(rowsCss.replace(/\/\*[\s\S]*?\*\//g, ""));
@@ -828,9 +827,9 @@ describe("the lane's CSS", () => {
     );
   });
 
-  it("joins the lane to the activity line only while it is open, and only on the desktop", () => {
+  it("joins the lane to the activity line only while it is open, on the desktop and the iPhone", () => {
     expect(rules).toMatch(
-      /html:not\(\.platform-ios\)\n {2}\.app\.app-session\n {2}> \.liveregion:has\(> \.oly-lane:not\(\.is-shut\)\)\n {2}> \.oly-lane\n {2}\+ \.task-activity:last-child \{/,
+      /html:root\n {2}\.app\.app-session\n {2}> \.liveregion:has\(> \.oly-lane:not\(\.is-shut\)\)\n {2}> \.oly-lane\n {2}\+ \.task-activity:last-child \{/,
     );
     expect(rules).toMatch(
       /\.oly-lane\.is-shut \{\n {2}height: 0;\n {2}margin-top: 0;\n {2}border-width: 0;/,

@@ -18,6 +18,62 @@ describe("MorePanel", () => {
     expect(screen.queryByText("Project Health")).toBeNull();
   });
 
+  it("holds the header's tools on the phone: Notes, Tasks, Checklist, the commit and Help", () => {
+    const tools = {
+      onNotes: vi.fn(),
+      tasksLabel: "Tasks (2)",
+      onTasks: vi.fn(),
+      commit: { label: "/commit", disabled: false, onClick: vi.fn() },
+      onHelp: vi.fn(),
+    };
+    render(
+      <MorePanel id="more-panel" onChecklist={vi.fn()} onClose={vi.fn()} phoneTools={tools} />,
+    );
+    const panel = screen.getByRole("region", { name: "More" });
+    const actions = [...panel.querySelectorAll(".priority-actions button")];
+    expect(actions.map((action) => action.textContent)).toEqual([
+      "Notes",
+      "Tasks (2)",
+      "Checklist",
+      "/commit",
+      "Help",
+    ]);
+    expect(document.activeElement).toBe(actions[0]);
+    for (const [name, call] of [
+      ["Notes", tools.onNotes],
+      ["Tasks (2)", tools.onTasks],
+      ["/commit", tools.commit.onClick],
+      ["Help", tools.onHelp],
+    ] as const) {
+      fireEvent.click(screen.getByRole("button", { name }));
+      expect(call).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("leaves the commit out when the project has none, and holds it while a run goes", () => {
+    const tools = {
+      onNotes: vi.fn(),
+      tasksLabel: "Tasks",
+      onTasks: vi.fn(),
+      commit: null,
+      onHelp: vi.fn(),
+    };
+    const view = render(
+      <MorePanel id="more-panel" onChecklist={vi.fn()} onClose={vi.fn()} phoneTools={tools} />,
+    );
+    expect(screen.queryByRole("button", { name: "/commit" })).toBeNull();
+    view.unmount();
+    render(
+      <MorePanel
+        id="more-panel"
+        onChecklist={vi.fn()}
+        onClose={vi.fn()}
+        phoneTools={{ ...tools, commit: { label: "/commit", disabled: true, onClick: vi.fn() } }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "/commit" }).hasAttribute("disabled")).toBe(true);
+  });
+
   it("opens on Checklist, and calls for it when pressed", () => {
     const onChecklist = vi.fn();
     const onClose = vi.fn();

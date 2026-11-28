@@ -1,6 +1,5 @@
-import { useRef, useCallback, useState, useEffect, type RefObject } from "react";
+import { useRef, useCallback, useEffect, type RefObject } from "react";
 import {
-  showJumpToLatest,
   followsOutput,
   isHiddenScroller,
   TOUCH_SETTLE_MS,
@@ -57,25 +56,12 @@ export function useTranscriptScroll({
   const transcriptTouchingRef = useRef(false);
   const transcriptTouchYRef = useRef(0);
   const transcriptSettleRef = useRef<number | null>(null);
-  // iPhone: the round "jump to latest" button, shown once the reader is well
-  // away from the newest line. Mirrored in a ref so scroll events only
-  // re-render when it actually flips.
-  const [jumpToLatestShown, setJumpToLatestShown] = useState(false);
-  const jumpToLatestRef = useRef(false);
-  const syncJumpToLatest = useCallback(() => {
-    const el = scrollRef.current;
-    const next = el !== null && isPhone() && showJumpToLatest(stickToBottomRef.current, el);
-    if (next === jumpToLatestRef.current) return;
-    jumpToLatestRef.current = next;
-    setJumpToLatestShown(next);
-  }, [scrollRef]);
 
   // Same as scrollToBottom, but a no-op while the user has scrolled up to read
   // (or, on the iPhone, while their finger is on the transcript).
   const maybeScrollToBottom = useCallback(() => {
     if (followsOutput(stickToBottomRef.current, transcriptHeldRef.current)) scrollToBottom();
-    syncJumpToLatest();
-  }, [scrollToBottom, syncJumpToLatest]);
+  }, [scrollToBottom]);
 
   const releaseTranscript = useCallback(() => {
     transcriptSettleRef.current = null;
@@ -116,16 +102,6 @@ export function useTranscriptScroll({
     settleTranscript();
   }, [settleTranscript]);
 
-  // The "jump to latest" button: follow again, and glide down to the end.
-  const jumpToLatest = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    stickToBottomRef.current = true;
-    syncJumpToLatest();
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    el.scrollTo({ top: el.scrollHeight, behavior: reduce ? "auto" : "smooth" });
-  }, [syncJumpToLatest, scrollRef]);
-
   // Track the user's scroll intent by direction, not distance: while a reply
   // streams, every commit re-pins, so any "near the bottom" allowance snapped a
   // small scroll up straight back down. The wheel handler runs before the
@@ -147,9 +123,8 @@ export function useTranscriptScroll({
     lastScrollTopRef.current = el.scrollTop;
     // A fling still running after the finger lifted keeps the hold on.
     if (transcriptHeldRef.current && !transcriptTouchingRef.current) settleTranscript();
-    syncJumpToLatest();
     readerMovedRef?.current?.(el, false);
-  }, [settleTranscript, syncJumpToLatest, scrollRef, readerMovedRef]);
+  }, [settleTranscript, scrollRef, readerMovedRef]);
   const onTranscriptWheel = useCallback(
     (e: React.WheelEvent<HTMLDivElement>) => {
       const el = scrollRef.current;
@@ -162,12 +137,10 @@ export function useTranscriptScroll({
   return {
     stickToBottomRef,
     lastScrollTopRef,
-    jumpToLatestShown,
     maybeScrollToBottom,
     onTranscriptTouchStart,
     onTranscriptTouchMove,
     onTranscriptTouchEnd,
-    jumpToLatest,
     onTranscriptScroll,
     onTranscriptWheel,
   };

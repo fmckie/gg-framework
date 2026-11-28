@@ -77,7 +77,7 @@ export function ContextButton({ pct }: { pct: number }): React.ReactElement {
         aria-controls={open ? id : undefined}
         onClick={() => (open ? close(true) : setOpen(true))}
       >
-        Context
+        <span className="ctx-word">Context</span>
         <span className="ctx-track" aria-hidden="true">
           <i style={{ width: `${clamped}%`, backgroundColor: fill }} />
         </span>

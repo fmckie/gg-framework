@@ -1,10 +1,10 @@
-// Settings → AI Providers, on the desktop: one hairline ring labelled Private.
+// Settings → AI Providers: one hairline ring labelled Private.
 // Inside it sit the models that run on your host or in secure hardware
 // (Tinfoil, Ollama, and Hugging Face's downloads into Ollama). Connected cloud
 // providers sit outside it, because messages to them go to that company, and
 // the rest wait under "Add a provider". Every provider opens the dialog it
-// always did. The phone keeps LoginScreen (settingsLayout.tsx), whose loading
-// this repeats until the iPhone slice.
+// always did. LoginScreen is still upstream's screen, so its loading is
+// repeated here.
 
 import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useState } from "react";
 import { ShieldCheckIcon } from "@phosphor-icons/react";

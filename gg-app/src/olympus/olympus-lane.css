@@ -2,8 +2,8 @@
    stylobate over the composer; each subagent at work is a god on it, acting
    its agent's latest tool, its name carved in the step's face under it. The
    engine (floor.ts) builds every god, puts it where it is and says which pose
-   shows; here is only how each state looks. Drawn only on the desktop
-   (LaneMount.tsx).
+   shows; here is only how each state looks. Drawn on the desktop and the
+   iPhone alike (LaneMount.tsx).
    Nothing here moves anything. Every move is the engine's, frame by frame
    from its own clock: the lane's height as it rises and falls, where a god is
    as it walks, how far its figure and its name show, how far its ribbon is
@@ -50,7 +50,7 @@
 
 /* The lane is the top of the composer's box: the activity line under it, or
    the text box itself, joins it square, with a dark groove and a faint lip. */
-html:not(.platform-ios)
+html:root
   .app.app-session
   > .liveregion:has(> .oly-lane:not(.is-shut))
   > .oly-lane
@@ -60,19 +60,16 @@ html:not(.platform-ios)
   border-radius: 0;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
 }
-html:not(.platform-ios)
-  .app.app-session
-  > .liveregion:has(> .oly-lane:last-child:not(.is-shut))
-  + .inputwrap {
+html:root .app.app-session > .liveregion:has(> .oly-lane:last-child:not(.is-shut)) + .inputwrap {
   border-top-color: rgb(0 0 0 / 0.5);
   border-radius: 0 0 12px 12px;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
 }
 /* Focus and file-drop light the whole box, the lane with it. */
-html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap:focus-within) > .oly-lane {
+html:root .app.app-session > .liveregion:has(+ .inputwrap:focus-within) > .oly-lane {
   border-color: rgb(255 255 255 / 0.22);
 }
-html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover) > .oly-lane {
+html:root .app.app-session > .liveregion:has(+ .inputwrap.dragover) > .oly-lane {
   border-color: var(--kleio-lapis);
 }
 

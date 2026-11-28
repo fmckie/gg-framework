@@ -3,6 +3,7 @@ import { updateGoal, type GoalContextItem, type GoalStateInfo, type ModelOption 
 import type { LiveToolEntry } from "../LiveToolPanel";
 import type { Item } from "../transcript-item";
 import { Modal } from "../Modal";
+import { KleioMenu } from "../kleio/KleioChrome";
 import { isPhone } from "../platform";
 import { GoalContextField, GoalInstructionsField, type ContextPick } from "./GoalForm";
 import { GoalFinish } from "./GoalFinish";
@@ -42,14 +43,13 @@ const PAUSE_LABEL: Readonly<Record<GoalRunState, string>> = {
 /**
  * The goal's settings: standing instructions and attached folders and files.
  * The coordinator picks the change up on its next step. The fork's take on
- * upstream's GoalSettingsModal: the desktop opens it as New goal's dialog
- * (`.goal-form`, kleio-theme.css); the iPhone keeps the plain form in the page.
+ * upstream's GoalSettingsModal, opened as New goal's dialog (`.goal-form`,
+ * kleio-theme.css).
  */
 function GoalSettings({
   context: initialContext,
   instructions: initialInstructions,
   busy,
-  dialog,
   onClose,
   onSaved,
 }: {
@@ -57,8 +57,6 @@ function GoalSettings({
   instructions: string;
   /** The goal is working: changes wait until it's paused or idle. */
   busy: boolean;
-  /** Inside the desktop's dialog, which closes on Escape itself. */
-  dialog: boolean;
   onClose: () => void;
   onSaved: (next: { context: GoalContextItem[]; instructions: string }) => void;
 }): React.ReactElement {
@@ -91,21 +89,12 @@ function GoalSettings({
 
   return (
     <form
-      className={dialog ? "goal-form" : "placeholder-form"}
+      className="goal-form"
       aria-label="Goal settings"
       onSubmit={(event) => {
         event.preventDefault();
         void save();
       }}
-      onKeyDown={
-        dialog
-          ? undefined
-          : (event) => {
-              if (event.key !== "Escape") return;
-              event.stopPropagation();
-              onClose();
-            }
-      }
     >
       <GoalInstructionsField
         placeholder="None yet. Add rules for the whole goal."
@@ -146,8 +135,8 @@ function GoalSettings({
  * Chat | Workers switch and the workers' tally once it has started, pause and
  * resume, the question it's blocked on, the goal's settings, and the model its
  * workers run on (upstream's footer picker). The desktop groups them into two
- * lines in the session's column ("A goal's session", kleio-theme.css); the
- * iPhone keeps the placeholder's one wrapping bar.
+ * lines in the session's column ("A goal's session", kleio-theme.css), on the
+ * desktop and the iPhone alike.
  */
 export function GoalPanel({
   goal,
@@ -308,7 +297,6 @@ export function GoalPanel({
     return () => onFinish(null);
   }, [onFinish, shownFinish]);
 
-  const phone = isPhone();
   const title = (
     <>
       <strong className="goal-bar-name">{goal.name}</strong>
@@ -349,12 +337,7 @@ export function GoalPanel({
     </button>
   );
   const settings = (
-    <button
-      type="button"
-      // The desktop's settings are a dialog; the iPhone's open in the page.
-      {...(phone ? { "aria-expanded": settingsOpen } : { "aria-haspopup": "dialog" as const })}
-      onClick={() => setSettingsOpen((open) => !open)}
-    >
+    <button type="button" aria-haspopup="dialog" onClick={() => setSettingsOpen((open) => !open)}>
       Goal settings
     </button>
   );
@@ -388,31 +371,45 @@ export function GoalPanel({
       context={goal.context ?? []}
       instructions={goal.instructions ?? ""}
       busy={running}
-      dialog={!phone}
       onClose={() => setSettingsOpen(false)}
       onSaved={(next) => onSaved?.(next)}
     />
   );
 
+  // The phone keeps the bar to one row: the goal, its views and a "⋯" that
+  // holds Pause, Goal settings and the Workers' model. The finish card scrolls
+  // with the Workers (WorkerList.tsx) rather than pushing the courtyard off.
+  const phone = isPhone();
   return (
-    <div className={phone ? undefined : "goal-panel"}>
-      {phone ? (
-        <div className="placeholder-bar" role="group" aria-label="Goal">
+    <div className="goal-panel">
+      <div className="goal-bar" role="group" aria-label="Goal">
+        <div className="goal-bar-title">
           {title}
-          {views}
           {tallyLine}
-          {pause}
-          {settings}
-          {modelLabel}
-          {modelSelect}
         </div>
-      ) : (
-        <div className="goal-bar" role="group" aria-label="Goal">
-          <div className="goal-bar-title">
-            {title}
-            {tallyLine}
-          </div>
-          {views}
+        {views}
+        {phone ? (
+          <KleioMenu
+            label="Goal actions"
+            items={[
+              ...(active && onPauseChange
+                ? [
+                    {
+                      label: PAUSE_LABEL[runState],
+                      onSelect: () => onPauseChange(runState === "running"),
+                    },
+                  ]
+                : []),
+              { label: "Goal settings", onSelect: () => setSettingsOpen(true) },
+            ]}
+            extra={
+              <div className="goal-bar-model goal-menu-model">
+                {modelLabel}
+                <span className="goal-bar-select">{modelSelect}</span>
+              </div>
+            }
+          />
+        ) : (
           <div className="goal-bar-tools">
             <span className="goal-bar-actions">
               {pause}
@@ -423,8 +420,8 @@ export function GoalPanel({
               <span className="goal-bar-select">{modelSelect}</span>
             </span>
           </div>
-        </div>
-      )}
+        )}
+      </div>
       {status && view === "workers" && (
         <div className="placeholder-bar goal-status">
           <StatusPill status={status} />
@@ -448,25 +445,22 @@ export function GoalPanel({
           </button>
         </div>
       )}
-      {shownFinish && (
+      {shownFinish && !phone && (
         <GoalFinish
           finish={shownFinish}
           onShowChat={() => onViewChange("chat")}
           onClose={() => setFinish(null)}
         />
       )}
-      {settingsOpen &&
-        (phone ? (
-          <div className="placeholder-bar">{settingsForm}</div>
-        ) : (
-          <Modal
-            title="Goal settings"
-            className="goal-form-modal"
-            onClose={() => setSettingsOpen(false)}
-          >
-            {settingsForm}
-          </Modal>
-        ))}
+      {settingsOpen && (
+        <Modal
+          title="Goal settings"
+          className="goal-form-modal"
+          onClose={() => setSettingsOpen(false)}
+        >
+          {settingsForm}
+        </Modal>
+      )}
     </div>
   );
 }

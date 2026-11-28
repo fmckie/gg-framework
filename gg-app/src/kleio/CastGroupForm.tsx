@@ -1,4 +1,4 @@
-// Create / edit a group on the desktop, in the Cast's look: who is in it on the
+// Create / edit a group, in the Cast's look: who is in it on the
 // left (its members standing on a shelf, and its name), how it is made up on the
 // right (the specialists to tick, how a group chat works, and deleting it). It
 // holds and saves exactly what today's form does (useGroupForm), less the
@@ -24,6 +24,7 @@ import {
 } from "./groupParts";
 import { KleioHead } from "./KleioChrome";
 import "./kleio-cast.css";
+import { isPhone } from "../platform";
 
 const footOf = (percent: number): React.CSSProperties =>
   ({ "--foot": `${percent}%` }) as React.CSSProperties;
@@ -170,7 +171,7 @@ export function CastGroupForm({
                         <span className="kleio-member-text">
                           <span className="kleio-member-name">Deleted specialist</span>
                           <span className="kleio-member-sub">
-                            Click to remove it from the group.
+                            {isPhone() ? "Tap" : "Click"} to remove it from the group.
                           </span>
                         </span>
                         <span className="kleio-check" aria-hidden="true">

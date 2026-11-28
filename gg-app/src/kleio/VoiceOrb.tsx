@@ -1,8 +1,6 @@
-// Kleio's voice orb. On the desktop it is the Hairline instrument (hairline/);
-// the iPhone keeps the sphere (VoiceOrbClassic.tsx) until it has its own design.
+// Kleio's voice orb: the Hairline instrument (hairline/), on the desktop and
+// the iPhone alike.
 
-import { lazy } from "react";
-import { isPhone } from "../platform";
 import { HairlineOrb } from "./hairline/HairlineOrb";
 
 /** What she's doing: shapes the orb's motion. */
@@ -28,13 +26,7 @@ export interface VoiceOrbProps {
 /** Darkest to lightest: shadow, deep, mid, glow. */
 export type Palette = readonly [string, string, string, string];
 
-// Its own chunk: the desktop's orb never needs @react-three/fiber.
-const VoiceOrbClassic = lazy(() =>
-  import("./VoiceOrbClassic").then((m) => ({ default: m.VoiceOrbClassic })),
-);
-
 export function VoiceOrb(props: VoiceOrbProps): React.ReactElement {
-  if (isPhone()) return <VoiceOrbClassic {...props} />;
   return (
     <HairlineOrb
       mood={props.mood}

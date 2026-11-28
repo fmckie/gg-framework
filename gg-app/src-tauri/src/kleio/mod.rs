@@ -390,7 +390,7 @@ impl Presence {
         self.0.subscribe()
     }
 
-    /// Back on screen (iPhone: `WindowEvent::Resumed`).
+    /// Back on screen (iPhone: UIKit's will-enter-foreground notification).
     #[cfg_attr(desktop, allow(dead_code))]
     pub fn foreground(&self) {
         self.set(true);
@@ -409,6 +409,20 @@ impl Presence {
         });
     }
 }
+
+/// How UIKit tells the iPhone app it left the screen and came back, and
+/// whether each means on screen. The app has the scene lifecycle
+/// (Info.ios.plist), under which UIKit no longer calls the app delegate's
+/// `applicationWillEnterForeground:`, tao's only source of
+/// `WindowEvent::Resumed`; it still posts both of these. Without the second,
+/// the first trip to the background left every event stream waiting for a
+/// return it never heard, a new chat's too: its reply showed only once the
+/// chat was opened again.
+#[cfg_attr(desktop, allow(dead_code))]
+pub const ON_SCREEN_NOTIFICATIONS: [(&str, bool); 2] = [
+    ("UIApplicationDidEnterBackgroundNotification", false),
+    ("UIApplicationWillEnterForegroundNotification", true),
+];
 
 /// Wait until the app is on screen; at once if it already is.
 pub async fn until_visible(rx: &mut tokio::sync::watch::Receiver<OnScreen>) {
@@ -646,6 +660,34 @@ mod tests {
 
         assert!(while_away.is_err(), "waited while in the background");
         assert!(once_back.is_ok(), "carried on once back on screen");
+    }
+
+    /// UIKit's own sequence under the scene lifecycle: its two notifications
+    /// and no `WindowEvent::Resumed`. The streams must be free to connect after
+    /// it, or a chat's reply never streams.
+    #[test]
+    fn a_trip_to_the_background_and_back_leaves_the_streams_free_to_connect() {
+        let presence = Presence::default();
+        let mut rx = presence.subscribe();
+        let short = std::time::Duration::from_millis(30);
+        for posted in [
+            "UIApplicationDidEnterBackgroundNotification",
+            "UIApplicationWillEnterForegroundNotification",
+        ] {
+            let (_, visible) = ON_SCREEN_NOTIFICATIONS
+                .iter()
+                .find(|(name, _)| *name == posted)
+                .unwrap_or_else(|| panic!("{posted} is not observed"));
+            if *visible {
+                presence.foreground();
+            } else {
+                presence.background();
+            }
+        }
+
+        let waited = block_on(async { tokio::time::timeout(short, until_visible(&mut rx)).await });
+
+        assert!(waited.is_ok(), "a new chat's stream would wait for ever");
     }
 
     #[test]

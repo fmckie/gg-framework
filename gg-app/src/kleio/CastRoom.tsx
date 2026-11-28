@@ -1,8 +1,7 @@
-// A group's chat on the desktop, in the Cast's look: who is in the room on one
+// A group's chat, in the Cast's look: who is in the room on one
 // shelf (the one replying in the spotlight, the turn arcing over to it), the
 // conversation underneath, and the files they shared in a panel on the right.
-// It reads and sends exactly what today's chat does (useGroupChat); the iPhone
-// keeps that chat (GroupsPage.tsx).
+// It reads and sends what the chat always did (useGroupChat).
 
 import { useEffect, useId, useMemo } from "react";
 import {
@@ -117,6 +116,11 @@ export function CastRoom({
             <span className="cast-pill">{plural(group.members.length, "member")}</span>
           )
         }
+        phoneMenu={[
+          { label: "New conversation", onSelect: () => setConfirmNew(true), disabled: starting },
+          { label: sidebar.open ? "Hide assets" : "Assets", onSelect: sidebar.toggle },
+          { label: "Edit", onSelect: onEdit },
+        ]}
         actions={
           <>
             <NewChatButton onClick={() => setConfirmNew(true)} disabled={starting} />

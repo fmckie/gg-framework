@@ -1,8 +1,7 @@
-// Settings → General, on the desktop: the project folder leads, with Save
-// beside its field; Permissions and Effects sit under it on a hairline. The
-// phone keeps SettingsModal as its page and the tray keeps it as its dialog
-// (settingsLayout.tsx); reading the folder, the permission's re-check, Browse
-// and Save are repeated here until the iPhone slice.
+// Settings → General: the project folder leads, with Save beside its field;
+// Permissions and Effects sit under it on a hairline. The tray keeps
+// SettingsModal as its dialog, so reading the folder, the permission's
+// re-check, Browse and Save are repeated here.
 
 import { useEffect, useId, useRef, useState } from "react";
 import { CheckCircleIcon } from "@phosphor-icons/react";
@@ -15,6 +14,7 @@ import {
   type PermissionsStatus,
 } from "../agent";
 import { HomeBackgroundButton } from "../HomeBackgroundButton";
+import { isPhone } from "../platform";
 import { SoundButton } from "../SoundButton";
 import { toast } from "../toast";
 
@@ -128,9 +128,13 @@ export function GeneralPage({ onSaved }: Props): React.ReactElement {
             autoCorrect="off"
             onChange={(e) => setFolder(e.target.value)}
           />
-          <button type="button" className="modal-btn" onClick={() => void browse()}>
-            {"Browse…"}
-          </button>
+          {/* The folder lives on the host; the iPhone's own file picker could
+              only hand back a path on the phone. */}
+          {!isPhone() && (
+            <button type="button" className="modal-btn" onClick={() => void browse()}>
+              {"Browse…"}
+            </button>
+          )}
           <button
             type="submit"
             // The page's filled button only while there is something to save.

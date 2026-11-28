@@ -1,0 +1,6 @@
+#!/bin/sh
+# `swift` for iOS device builds; scripts/ios-device.sh puts this folder first on PATH (see the comment there).
+REAL=$(/usr/bin/xcrun -f swift)
+export GIT_CEILING_DIRECTORIES="$HOME${GIT_CEILING_DIRECTORIES:+:$GIT_CEILING_DIRECTORIES}"
+if [ "${1:-}" = "build" ]; then shift; exec "$REAL" build --build-system native "$@"; fi
+exec "$REAL" "$@"

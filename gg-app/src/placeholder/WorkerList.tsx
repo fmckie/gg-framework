@@ -5,6 +5,7 @@ import type { CourtAgent, HearthState } from "../olympus/courtyard";
 import { agentTypeOf, godOf, type God } from "../olympus/gods";
 import { toolFamilyOf } from "../olympus/tool-family";
 import { isPhone } from "../platform";
+import { GoalFinish as GoalFinishCard } from "./GoalFinish";
 import { GoalStele } from "./GoalStele";
 import { StatusDot, type StatusTone } from "./StatusDot";
 import type { GoalFinish } from "./goal-finish";
@@ -87,6 +88,7 @@ export function WorkerList({
   liveTools,
   waitingOnUser,
   finish = null,
+  onShowChat,
 }: {
   /** Every sub-agent group in the transcript, oldest first. */
   groups: readonly WorkerGroup[];
@@ -95,6 +97,8 @@ export function WorkerList({
   waitingOnUser: boolean;
   /** The finish the goal's bar is showing, if one stands. */
   finish?: GoalFinish | null;
+  /** The phone shows the finish card here, first in the scroll; this is its next step. */
+  onShowChat?: () => void;
 }): React.ReactElement {
   const workers = useMemo(() => collectWorkers(groups), [groups]);
   const agents = useMemo(
@@ -119,9 +123,18 @@ export function WorkerList({
   // The row the pointer is on, and the worker whose god it is on.
   const [pointed, setPointed] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
+  // The finish card the phone has closed: the finish itself stands, for the hearth.
+  const [closedFinish, setClosedFinish] = useState<GoalFinish | null>(null);
   return (
     <section className="placeholder-goals goal-workers" aria-label="Workers">
       <div className="placeholder-scroll">
+        {!desktop && finish && onShowChat && finish !== closedFinish && (
+          <GoalFinishCard
+            finish={finish}
+            onShowChat={onShowChat}
+            onClose={() => setClosedFinish(finish)}
+          />
+        )}
         <CourtMount
           agents={court}
           hearth={hearth}

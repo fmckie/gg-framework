@@ -86,9 +86,9 @@ describe("the waiting line", () => {
     expect(screen.queryByText("Waiting for your review")).toBeNull();
   });
 
-  it("is not on the iPhone", () => {
+  it("is on the iPhone too", () => {
     document.documentElement.classList.add("platform-ios");
     renderPlan();
-    expect(screen.queryByText("Waiting for your review")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("Waiting for your review");
   });
 });

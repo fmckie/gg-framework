@@ -103,9 +103,12 @@ export function PlanReviewModal({
               }}
             />
             <div className="plan-feedback-row">
-              <span className="plan-feedback-hint" style={{ color: theme.textDim }}>
-                {"\u2318\u23CE to send \u00b7 Esc to cancel"}
-              </span>
+              {/* Keys a phone has none of. */}
+              {!isPhone() && (
+                <span className="plan-feedback-hint" style={{ color: theme.textDim }}>
+                  {"\u2318\u23CE to send \u00b7 Esc to cancel"}
+                </span>
+              )}
               <span className="plan-feedback-buttons">
                 <button className="btn btn-ghost btn-sm" onClick={closeFeedback}>
                   Cancel
@@ -122,8 +125,7 @@ export function PlanReviewModal({
           </div>
         ) : (
           <>
-            {/* Accept is last, so Tab reaches it after the two ways to say no.
-                The iPhone keeps its own visual order in CSS. */}
+            {/* Accept is last, so Tab reaches it after the two ways to say no. */}
             <button
               ref={feedbackButtonRef}
               className="btn btn-ghost"
@@ -140,9 +142,9 @@ export function PlanReviewModal({
           </>
         )}
       </div>
-      {/* The desktop's activity line is under this review, so it says it here.
+      {/* The activity line is under this review, so it says it here.
           Not while Helper reviews: that line already says who is deciding. */}
-      {!isPhone() && !kenReviewing && (
+      {!kenReviewing && (
         <p className="plan-review-status" role="status">
           Waiting for your review
         </p>

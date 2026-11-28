@@ -22,6 +22,7 @@
     "test": "vitest run",
     "smoke:packaged": "node scripts/smoke-packaged-windows.mjs",
     "ios:sim": "bash scripts/ios-sim.sh",
+    "ios:device": "bash scripts/ios-device.sh",
     "tauri": "tauri"
   },
   "dependencies": {

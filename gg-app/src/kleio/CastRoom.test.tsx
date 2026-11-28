@@ -197,6 +197,33 @@ describe("the room, mid-turn", () => {
   });
 });
 
+describe("the room on the iPhone", () => {
+  afterEach(() => document.documentElement.classList.remove("platform-ios"));
+
+  it("keeps the header to one row: its three buttons are one menu's", async () => {
+    document.documentElement.classList.add("platform-ios");
+    narrowWindow();
+    await draw();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Assets" })).toBeNull();
+    const more = screen.getByRole("button", { name: "More" });
+    fireEvent.click(more);
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "New conversation",
+      "Assets",
+      "Edit",
+    ]);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Assets" }));
+    expect(panel()).not.toBeNull();
+    fireEvent.click(more);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit" }));
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    // Each member is still the button that mentions them.
+    fireEvent.click(member("Quill"));
+    expect(draft().value).toBe("@Quill ");
+  });
+});
+
 describe("the room at rest", () => {
   it("has no baton, no dots and no steps, and counts its members in the header", async () => {
     await draw(4, QUIET);

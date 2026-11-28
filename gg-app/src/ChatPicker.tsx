@@ -12,9 +12,7 @@ import {
   type RecentSession,
 } from "./agent";
 import { motionWorkspacePath } from "./motion-workspace";
-import { isPhone } from "./platform";
 import { readableSessionTitle } from "./session-title";
-import { Badge } from "./Badge";
 import { BackButton } from "./BackButton";
 import { ListSkeleton } from "./Skeleton";
 import { RadioButton } from "./RadioButton";
@@ -81,7 +79,7 @@ export function ChatPicker({
   const [currentPath, setCurrentPath] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!markCurrent || isPhone()) return;
+    if (!markCurrent) return;
     let cancelled = false;
     void restoreTarget().then((target) => {
       if (!cancelled) setCurrentPath(target?.sessionPath ?? null);
@@ -153,13 +151,11 @@ export function ChatPicker({
     });
   }
 
-  const phone = isPhone();
   const rows = sessions.map((session) => ({
     session,
     title: readableSessionTitle(session.preview) || "(no preview)",
   }));
-  // The desktop's search. The iPhone has no field, so it keeps the whole list.
-  const needle = phone ? "" : query.trim().toLowerCase();
+  const needle = query.trim().toLowerCase();
   const shown = needle ? rows.filter((row) => row.title.toLowerCase().includes(needle)) : rows;
   const wrapClass = canDelete ? "picker-item-wrap picker-item-deletable" : "picker-item-wrap";
 
@@ -207,67 +203,45 @@ export function ChatPicker({
   }
 
   return (
-    <div className={phone ? "picker chat-picker" : "picker chat-picker chat-browser"}>
-      {phone ? (
-        <div className="picker-head" data-tauri-drag-region>
-          {onClose ? <BackButton label="Back" onClick={onClose} /> : null}
-          <span className="picker-title">{copy.title}</span>
-          {!loading && !error && <Badge>{sessions.length}</Badge>}
-          <span className="picker-head-actions">
-            <MetalButton
-              windowFocused={windowFocused}
-              className="btn btn-primary btn-sm"
-              disabled={busy || loading || !projectsRoot}
-              onClick={() => choose()}
-            >
-              {copy.newLabel}
-            </MetalButton>
-            <RadioButton />
-            <WindowLayoutButton />
-          </span>
+    <div className="picker chat-picker chat-browser">
+      <div className="picker-head" data-tauri-drag-region>
+        {onClose ? <BackButton label="Back" onClick={onClose} /> : null}
+        <span className="picker-head-actions">
+          <RadioButton />
+          <WindowLayoutButton />
+        </span>
+      </div>
+      <div className="chat-browser-heading">
+        <h1 className="chat-browser-title">
+          {copy.title}{" "}
+          {!loading && !error && <span className="chat-browser-count">{sessions.length}</span>}
+        </h1>
+        <div className="chat-browser-controls">
+          <label className="chat-browser-search">
+            {copy.searchLabel}
+            <input
+              type="search"
+              placeholder="Search by title"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="chat-browser-new"
+            disabled={busy || loading || !projectsRoot}
+            onClick={() => choose()}
+          >
+            {copy.newLabel}
+          </button>
         </div>
-      ) : (
-        <>
-          <div className="picker-head" data-tauri-drag-region>
-            {onClose ? <BackButton label="Back" onClick={onClose} /> : null}
-            <span className="picker-head-actions">
-              <RadioButton />
-              <WindowLayoutButton />
-            </span>
-          </div>
-          <div className="chat-browser-heading">
-            <h1 className="chat-browser-title">
-              {copy.title}{" "}
-              {!loading && !error && <span className="chat-browser-count">{sessions.length}</span>}
-            </h1>
-            <div className="chat-browser-controls">
-              <label className="chat-browser-search">
-                {copy.searchLabel}
-                <input
-                  type="search"
-                  placeholder="Search by title"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                />
-              </label>
-              <button
-                type="button"
-                className="chat-browser-new"
-                disabled={busy || loading || !projectsRoot}
-                onClick={() => choose()}
-              >
-                {copy.newLabel}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
+      </div>
 
       <div
         className="picker-list"
-        {...(phone
-          ? {}
-          : { tabIndex: 0, role: "region", "aria-label": `${copy.title}, scrollable` })}
+        tabIndex={0}
+        role="region"
+        aria-label={`${copy.title}, scrollable`}
       >
         {deleteError && (
           <div className="picker-error" role="alert">
@@ -298,39 +272,7 @@ export function ChatPicker({
             {copy.noMatch}
           </p>
         )}
-        {!loading && !error && shown.length > 0 && phone && (
-          <div className="picker-reveal">
-            {shown.map(({ session, title: preview }) => {
-              const confirming = confirmPath === session.path;
-              const deleting = deletingPath === session.path;
-              return (
-                <div
-                  key={session.id}
-                  className={wrapClass}
-                  onMouseLeave={confirming ? () => setConfirmPath(null) : undefined}
-                >
-                  <button
-                    className="picker-item"
-                    disabled={busy || deleting}
-                    onClick={() => choose(session)}
-                  >
-                    <span className="picker-row">
-                      <span className="picker-name picker-preview" style={{ color: theme.text }}>
-                        {preview}
-                      </span>
-                      <Badge>{session.lastActiveDisplay}</Badge>
-                    </span>
-                    <span className="picker-meta" style={{ color: theme.textMuted }}>
-                      {`${session.messageCount} msgs`}
-                    </span>
-                  </button>
-                  {deleteControls(session, preview)}
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {!loading && !error && shown.length > 0 && !phone && (
+        {!loading && !error && shown.length > 0 && (
           <ul className="chat-browser-list">
             {shown.map(({ session, title }) => {
               const current = currentPath !== null && session.path === currentPath;

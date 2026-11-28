@@ -692,10 +692,16 @@ describe("ConnectionPage — Forget host", () => {
     );
   });
 
-  it("on the iPhone, says the host is asked to remove it, and what if it can't be", async () => {
+  it("on the iPhone, Forget host waits under Remove too, and says the host is asked to remove it", async () => {
     document.documentElement.classList.add("platform-ios");
     await renderPage();
-    const host = screen.getByRole("region", { name: "Host" });
+    expect(
+      within(screen.getByRole("region", { name: "Host" })).queryByRole("button", {
+        name: /Forget host/,
+      }),
+    ).toBeNull();
+    const host = removeGroup();
+    expect(within(host).getByText("This iPhone's pairing with mac-mini-1")).toBeTruthy();
     fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
     expect(
       within(host).getByText(
@@ -1035,7 +1041,7 @@ describe("ConnectionPage — Kleio's link", () => {
     expect(within(box).queryByRole("button", { name: "Fix" })).toBeNull();
   });
 
-  it("on the desktop, keeps what is and isn't encrypted in view, and folds n0's figures", async () => {
+  it("keeps what is and isn't encrypted in view, and folds n0's figures", async () => {
     onTheLink();
     const box = await card();
     for (const text of [
@@ -1050,12 +1056,15 @@ describe("ConnectionPage — Kleio's link", () => {
     );
   });
 
-  it("on the iPhone, n0's figures are in view, with no More", async () => {
+  it("on the iPhone, folds n0's figures behind the same More", async () => {
     document.documentElement.classList.add("platform-ios");
     onTheLink();
     const box = await card();
-    expect(within(box).getByText(N0_RELAY_LINE).closest("details")).toBeNull();
-    expect(screen.queryByText("More", { selector: "summary" })).toBeNull();
+    const fold = within(box).getByText(N0_RELAY_LINE).closest("details");
+    expect(fold?.open).toBe(false);
+    expect(fold?.querySelector("summary")?.getAttribute("aria-label")).toBe(
+      "More about Kleio's link",
+    );
   });
 
   it("isn't there in a build without the link", async () => {
@@ -1905,14 +1914,15 @@ describe("ConnectionPage — Always on", () => {
     ).toBeTruthy();
   });
 
-  it("is absent on the phone, which has it on Setup", async () => {
+  it("is on the iPhone too, after Host", async () => {
     document.documentElement.classList.add("platform-ios");
     vi.mocked(getHostInfo).mockResolvedValue(SLEEPS);
     await renderPage();
-    await waitFor(() => expect(getHostInfo).toHaveBeenCalled());
-    await act(async () => {});
-    expect(screen.getByRole("region", { name: "Host" })).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "Always on" })).toBeNull();
+    expect(await within(alwaysOn()).findByRole("img", { name: "May sleep" })).toBeTruthy();
+    const host = screen.getByRole("region", { name: "Host" });
+    expect(
+      host.compareDocumentPosition(alwaysOn()) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("is absent until this device is paired with a host", async () => {
@@ -1923,7 +1933,7 @@ describe("ConnectionPage — Always on", () => {
   });
 });
 
-describe("ConnectionPage — the desktop's path", () => {
+describe("ConnectionPage — the path", () => {
   /** Kleio on the host doesn't answer, and nothing replies at all. */
   const silent = (): void => {
     vi.mocked(hostHealth).mockRejectedValue(new Error("request timed out"));
@@ -2114,31 +2124,24 @@ describe("ConnectionPage — the desktop's path", () => {
     );
   });
 
-  it("on the phone keeps the map, the verdict card with its steps open, and the header's badge and button", async () => {
+  it("on the iPhone draws the same path: its own names, nothing in the header, the steps behind Fix", async () => {
     document.documentElement.classList.add("platform-ios");
     silent();
     await renderFramed();
     const { box } = await verdict();
-    expect(box.classList.contains("conn-verdict")).toBe(true);
-    expect(document.querySelector(".cx-path, .cx-route, .cx-page")).toBeNull();
-    expect(
-      [...document.querySelectorAll(".conn-map .conn-node-name")].map((n) => n.textContent),
-    ).toEqual(["This iPhone", "mac-mini-1", "Mac"]);
-    expect(
-      [...document.querySelectorAll(".conn-link-label")].map((label) => label.textContent),
-    ).toEqual(["Tailscale", "Tailscale"]);
-    // The steps are open without a Fix to press.
-    expect(within(box).queryByRole("button", { name: "Fix" })).toBeNull();
-    expect(within(box).getByRole("heading", { name: "How to fix it" })).toBeTruthy();
-    expect(within(box).getByText("Then tap Check again.")).toBeTruthy();
-    expect(screen.getByTestId("head-status").textContent).toBe("Disconnected");
-    expect(
-      within(screen.getByTestId("head-actions")).getByRole("button", { name: "Check again" }),
-    ).toBeTruthy();
+    expect(document.querySelector(".cx-page .cx-path .cx-route")).not.toBeNull();
+    expect(document.querySelector(".conn-map, .conn-verdict")).toBeNull();
+    // The way through is the middle node; the first is this device, by its own name.
+    expect(pathNodes().map(([name]) => name)).toEqual(["This iPhone", "Tailscale", "mac-mini-1"]);
+    expect(screen.getByTestId("head-status").textContent).toBe("");
+    expect(screen.getByTestId("head-actions").textContent).toBe("");
+    expect(screen.getAllByRole("button", { name: "Check again" })).toHaveLength(1);
+    const steps = pressFix(box);
+    expect(within(steps).getByText("Then tap Check again.")).toBeTruthy();
   });
 });
 
-describe("ConnectionPage — Remove, on the desktop", () => {
+describe("ConnectionPage — Remove", () => {
   const DAY = 24 * 60 * 60_000;
   const ago = (ms: number): string => new Date(Date.now() - ms).toISOString();
   const device = (deviceId: string, label: string, created: number, seen: number | null) => ({
@@ -2266,27 +2269,26 @@ describe("ConnectionPage — Remove, on the desktop", () => {
     expect(screen.queryByRole("button", { name: "Show devices" })).toBeNull();
   });
 
-  it("on the phone, Forget host and Revoke stay inline, and there is no Remove group", async () => {
+  it("on the iPhone, Forget host and each Revoke wait under Remove, and its own row says This iPhone", async () => {
     document.documentElement.classList.add("platform-ios");
-    vi.mocked(kleio.devices).mockResolvedValue(DEVICES);
-    await renderPage();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Show devices" }));
-    });
-    expect(screen.queryByRole("region", { name: "Remove" })).toBeNull();
-    const host = screen.getByRole("region", { name: "Host" });
-    expect(within(host).getByRole("button", { name: "Forget host…" })).toBeTruthy();
-    const devices = screen.getByRole("region", { name: "Devices" });
+    const { remove, devices } = await shown();
+    expect(whats(remove)).toHaveLength(3);
+    expect(whats(remove)[0]).toBe("This iPhone's pairing with mac-mini-1");
     expect(
-      within(devices).getAllByRole("button", { name: "Revoke this device: iPhone" }),
-    ).toHaveLength(2);
+      within(remove)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label") ?? b.textContent),
+    ).toEqual(["Forget host…", "Revoke this device: iPhone", "Revoke this device: iPhone"]);
+    expect(within(devices).queryByRole("button", { name: /Revoke/ })).toBeNull();
     expect(
-      within(devices).queryByText("Revoke a device under Remove, at the end of this page."),
-    ).toBeNull();
+      within(devices).getByText("Revoke a device under Remove, at the end of this page."),
+    ).toBeTruthy();
+    expect(within(devices).getByText("This iPhone")).toBeTruthy();
+    expect(within(devices).queryByText("This Mac")).toBeNull();
   });
 });
 
-describe("ConnectionPage — what the desktop folds", () => {
+describe("ConnectionPage — what it folds", () => {
   /** A section's fold: its More, named for it. */
   function more(name: string): HTMLDetailsElement {
     const region = screen.getByRole("region", { name });
@@ -2354,18 +2356,27 @@ describe("ConnectionPage — what the desktop folds", () => {
     expect(within(ts).getByText("Key expires in 5 days.").closest("details")).toBeNull();
   });
 
-  it("on the phone, shows every description whole, with nothing folded", async () => {
+  it("on the iPhone, folds the same sentences behind More", async () => {
     document.documentElement.classList.add("platform-ios");
     await renderPage();
     await verdict();
-    for (const text of [
-      "Kleio's brain lives here. Chats, specialists and code all run on it, so they keep going when this device sleeps.",
-      "Your devices find this host through these, in order. n0's are free and shared, and slow big downloads to about 1 MB/s. A relay of your own is faster.",
-      "Pair another iPhone or Mac with your host. An iPhone scans the QR code, and a Mac pastes its pairing text.",
-      "Everything paired with your host. New marks a device paired this week. Revoke one and it's cut off straight away.",
-    ])
-      expect(await screen.findByText(text)).toBeTruthy();
-    expect(screen.queryByText("More", { selector: "summary" })).toBeNull();
+    for (const [name, lead, rest] of [
+      [
+        "Host",
+        "Kleio's brain lives here.",
+        "Chats, specialists and code all run on it, so they keep going when this device sleeps.",
+      ],
+      [
+        "Devices",
+        "Everything paired with your host.",
+        "New marks a device paired this week. Revoke one and it's cut off straight away.",
+      ],
+    ] as const) {
+      const region = await screen.findByRole("region", { name });
+      const fold = more(name);
+      expect(within(region).getByText(lead).closest("details")).toBeNull();
+      expect(fold.querySelector("p")?.textContent).toBe(rest);
+    }
   });
 });
 

@@ -71,6 +71,11 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: kleio
             CFBundleURLSchemes: [kleio]
+        # Built with the iOS 27 SDK, UIKit stops an app at launch unless it
+        # has the scene lifecycle, and tao takes that path only when this is
+        # true. An iPhone still has one scene.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
     entitlements:
       path: gg-app_iOS/gg-app_iOS.entitlements
       properties:

@@ -3,16 +3,7 @@
 // in Kleio's crimson and white, with Kleio's own ways in.
 
 import { useEffect, useState } from "react";
-import {
-  CirclesThreeIcon,
-  CodeIcon,
-  FilmSlateIcon,
-  GearSixIcon,
-  SparkleIcon,
-  TargetIcon,
-  WaveformIcon,
-  type Icon,
-} from "@phosphor-icons/react";
+import { GearSixIcon } from "@phosphor-icons/react";
 import { getVersion } from "@tauri-apps/api/app";
 import { HomeDither } from "../HomeDither";
 import { useHomeBackgroundEnabled } from "../home-background";
@@ -28,7 +19,6 @@ import { useKleioRemote } from "./useKleioRemote";
 import { diagnosisText } from "./connectionDiagnosis";
 import { useHostReach, useHostReachWords } from "./hostReach";
 import { shortHost } from "./host-name";
-import { isPhone } from "../platform";
 import { KleioPlate } from "./KleioPlate";
 
 interface Props {
@@ -142,23 +132,20 @@ export function KleioHome({
         ? { state: "is-up", text: `Connected to ${mini}` }
         : { state: "is-down", text: words?.headline ?? `Disconnected from ${mini}` };
 
-  // The iPhone keeps its column of domed buttons; the desktop has the plates.
-  const phone = isPhone();
+  // The plates, on the desktop and the iPhone alike (kleio-phone.css fits the grid).
   const ways: {
     label: string;
-    Icon: Icon;
     on: boolean;
     open: () => void;
     keys?: string;
     tip?: string;
   }[] = [
-    { label: "Chat", Icon: SparkleIcon, on: modelReady, open: openChat },
-    { label: "Code", Icon: CodeIcon, on: codeReady, open: () => openInFolder(onCode) },
-    { label: "Motion", Icon: FilmSlateIcon, on: codeReady, open: () => openInFolder(onMotion) },
-    { label: "Goals", Icon: TargetIcon, on: true, open: onGoals },
+    { label: "Chat", on: modelReady, open: openChat },
+    { label: "Code", on: codeReady, open: () => openInFolder(onCode) },
+    { label: "Motion", on: codeReady, open: () => openInFolder(onMotion) },
+    { label: "Goals", on: true, open: onGoals },
     {
       label: "Specialists",
-      Icon: CirclesThreeIcon,
       on: true,
       open: onBlobs,
       keys: "Meta+Shift+L",
@@ -194,58 +181,27 @@ export function KleioHome({
       </div>
       <KleioMark />
       <div className="home-tagline">Talk to your work: chat, code and specialists in one app.</div>
-      {phone ? (
-        <>
-          <div className="home-actions">
-            {ways.map(({ label, Icon, on, open, keys }) => (
-              <button
-                key={label}
-                type="button"
-                className={`kleio-cloisonne home-action${on ? "" : " is-dimmed"}`}
-                aria-disabled={on ? undefined : true}
-                aria-keyshortcuts={keys}
-                onClick={open}
-              >
-                <Icon size={18} weight="bold" aria-hidden="true" />
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="home-quiet">
-            <button
-              type="button"
-              className="kleio-cloisonne is-small home-brief"
-              aria-keyshortcuts="Meta+Shift+B"
-              title={talkTitle}
-              onClick={() => void talkToKleio()}
-            >
-              <WaveformIcon size={16} weight="bold" aria-hidden="true" />
-              {talkLabel}
-            </button>
-          </div>
-        </>
-      ) : (
-        // Three, two, one (kleio-theme.css): the shortcuts are in the hover tips.
-        <div className="home-actions">
-          {ways.map(({ label, on, open, keys, tip }) => (
-            <KleioPlate
-              key={label}
-              label={label}
-              dimmed={!on}
-              aria-keyshortcuts={keys}
-              title={tip}
-              onClick={open}
-            />
-          ))}
+      {/* Three, two, one on the desktop, two by two on the iPhone (kleio-theme.css,
+          kleio-phone.css): the shortcuts are in the hover tips. */}
+      <div className="home-actions">
+        {ways.map(({ label, on, open, keys, tip }) => (
           <KleioPlate
-            className="home-brief"
-            label={talkLabel}
-            aria-keyshortcuts="Meta+Shift+B"
-            title={talkTitle}
-            onClick={() => void talkToKleio()}
+            key={label}
+            label={label}
+            dimmed={!on}
+            aria-keyshortcuts={keys}
+            title={tip}
+            onClick={open}
           />
-        </div>
-      )}
+        ))}
+        <KleioPlate
+          className="home-brief"
+          label={talkLabel}
+          aria-keyshortcuts="Meta+Shift+B"
+          title={talkTitle}
+          onClick={() => void talkToKleio()}
+        />
+      </div>
       <button
         type="button"
         className="home-settings"

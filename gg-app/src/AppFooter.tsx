@@ -11,11 +11,11 @@ import { ModelSelect } from "./ModelSelect";
 import { ModelTrigger } from "./ModelPanel";
 import { RunningSchedulesButton } from "./RunningSchedulesButton";
 import type { Routine } from "./useRoutines";
-import { ContextMeter } from "./ContextMeter";
 import { ContextButton } from "./ContextButton";
 import { BackgroundTasksButton } from "./BackgroundTasksButton";
 import { ShimmerText } from "./ShimmerText";
 import { FooterSkeleton } from "./Skeleton";
+import { isPhone } from "./platform";
 
 // Vertical divider between footer segments (mirrors the TUI's ` \u2502 ` in
 // border color). Rendered between adjacent groups, never leading/trailing.
@@ -45,10 +45,53 @@ function thinkingColor(level: string | null | undefined): string {
   return MAX_POWER_COLOR; // xhigh / max
 }
 
+/** The Helper's model. The phone has no room for it beside Kleio's, so there
+ *  it is in the Model panel (App.tsx) instead of the footer. */
+export function HelperModel({
+  state,
+  models,
+  onSelectKenModel,
+  running,
+  kenRunning,
+  autopilotReviewing,
+}: {
+  state: AgentState | null;
+  models: ModelOption[];
+  onSelectKenModel: (modelId: string | null) => void;
+  running: boolean;
+  kenRunning: boolean;
+  autopilotReviewing: boolean;
+}): React.ReactElement {
+  return (
+    <span className="model-anchor">
+      <span className="model-label" style={{ color: theme.ken }}>
+        Helper
+      </span>
+      <ModelSelect
+        models={models}
+        currentModel={state?.kenModel ?? state?.model ?? ""}
+        onSelect={(id) => onSelectKenModel(id)}
+        color={theme.ken}
+        // Ken's pin retargets BOTH his sessions (chat + the
+        // autopilot reviewer), so it has to stay locked while
+        // either is mid-turn — same rule the GG picker follows,
+        // and the sidecar now answers 409 to match.
+        disabled={running || kenRunning || autopilotReviewing}
+        title={
+          state?.kenModelOverride
+            ? "Helper is pinned to its own model. Click to change it"
+            : "Helper follows Kleio's model. Click to pin one"
+        }
+        onSelectFollow={() => onSelectKenModel(null)}
+        followActive={!state?.kenModelOverride}
+      />
+    </span>
+  );
+}
+
 export function AppFooter({
   workspaceMode,
   hydrated,
-  phoneHeader,
   state,
   runningTaskCount,
   tasks,
@@ -65,7 +108,6 @@ export function AppFooter({
 }: {
   workspaceMode: WorkspaceMode;
   hydrated: boolean;
-  phoneHeader: boolean;
   state: AgentState | null;
   runningTaskCount: number;
   tasks: BackgroundTask[];
@@ -78,7 +120,7 @@ export function AppFooter({
   onSelectKenModel: (modelId: string | null) => void;
   kenRunning: boolean;
   autopilotReviewing: boolean;
-  /** The desktop's Model panel. Without it the old picker stays (the iPhone). */
+  /** The Model panel. Without it the old picker stays. */
   modelPanel?: {
     open: boolean;
     panelId: string;
@@ -102,17 +144,13 @@ export function AppFooter({
               Motion Agent
             </span>
           ) : workspaceMode === "chat" ? (
-            // On the iPhone the controls take the whole line, and the agent's
-            // name was clipped to "Gene".
-            !phoneHeader && (
-              <span className="footer-left footer-reveal" style={{ color: theme.textDim }}>
-                {state?.chatAgent === "therapist"
-                  ? "Therapist Agent"
-                  : state?.chatAgent === "research"
-                    ? "Research Agent"
-                    : "General Agent"}
-              </span>
-            )
+            <span className="footer-left footer-reveal" style={{ color: theme.textDim }}>
+              {state?.chatAgent === "therapist"
+                ? "Therapist Agent"
+                : state?.chatAgent === "research"
+                  ? "Research Agent"
+                  : "General Agent"}
+            </span>
           ) : (
             <span className="footer-left footer-reveal">
               {runningTaskCount > 0 && <BackgroundTasksButton tasks={tasks} />}
@@ -135,30 +173,24 @@ export function AppFooter({
             </span>
           )}
           <span className="footer-right footer-reveal">
-            {/* The iPhone keeps the plain reading, hidden at 0. */}
-            {phoneHeader ? (
-              contextPct > 0 && (
-                <>
-                  <ContextMeter pct={contextPct} />
-                  <FooterSep />
-                </>
-              )
-            ) : (
-              <>
-                <ContextButton pct={contextPct} />
-                <FooterSep />
-              </>
-            )}
+            <ContextButton pct={contextPct} />
+            <FooterSep />
             {(state?.supportedThinkingLevels?.length ?? 0) > 0 &&
               (() => {
                 // While the Model panel is open it owns the level: this control
                 // shows the one being tried and waits for Cancel or Use model.
-                const previewing = !phoneHeader && modelPanel?.open === true;
+                const previewing = modelPanel?.open === true;
                 const level =
                   previewing && modelPanel.previewLevel !== undefined
                     ? modelPanel.previewLevel
                     : (state?.thinkingLevel ?? null);
-                const label = level ? `Thinking ${level}` : "Thinking off";
+                // The word is its own element: the phone shows the bars and the level.
+                const label = (
+                  <>
+                    <span className="thinking-word">Thinking </span>
+                    {level ?? "off"}
+                  </>
+                );
                 const maxPower = level === "xhigh" || level === "max";
                 // Reasoning level is baked into the request the run is already
                 // streaming, so a mid-turn cycle changes nothing about it and
@@ -169,7 +201,7 @@ export function AppFooter({
                   <>
                     <button
                       className="thinking-toggle"
-                      // The desktop session colours the label by level in CSS.
+                      // The session colours the label by level in CSS.
                       data-level={level ?? "off"}
                       data-preview={previewing ? "" : undefined}
                       style={{
@@ -186,7 +218,7 @@ export function AppFooter({
                       disabled={locked || previewing}
                       onClick={() => void cycleThinking()}
                     >
-                      {!phoneHeader && level && EFFORT_BARS[level] ? (
+                      {level && EFFORT_BARS[level] ? (
                         <span className="effort-mark" aria-hidden="true">
                           {Array.from({ length: EFFORT_BARS[level] }, (_, bar) => (
                             <i key={bar} />
@@ -209,7 +241,7 @@ export function AppFooter({
               <span className="model-label" style={{ color: theme.text }}>
                 Kleio
               </span>
-              {!phoneHeader && modelPanel ? (
+              {modelPanel ? (
                 <ModelTrigger
                   models={models}
                   currentModel={state?.model ?? ""}
@@ -226,39 +258,22 @@ export function AppFooter({
                   currentModel={state?.model ?? ""}
                   onSelect={onSelectModel}
                   offerPaid
-                  compact={phoneHeader}
                   disabled={running}
                   title={`Switch ${workspaceMode === "chat" ? "Kleio" : workspaceProductName(workspaceMode)}'s model`}
                 />
               )}
             </span>
-            {workspaceMode === "code" && (
+            {workspaceMode === "code" && !isPhone() && (
               <>
                 <FooterSep />
-                <span className="model-anchor">
-                  <span className="model-label" style={{ color: theme.ken }}>
-                    Helper
-                  </span>
-                  <ModelSelect
-                    models={models}
-                    currentModel={state?.kenModel ?? state?.model ?? ""}
-                    onSelect={(id) => onSelectKenModel(id)}
-                    compact={phoneHeader}
-                    color={theme.ken}
-                    // Ken's pin retargets BOTH his sessions (chat + the
-                    // autopilot reviewer), so it has to stay locked while
-                    // either is mid-turn — same rule the GG picker follows,
-                    // and the sidecar now answers 409 to match.
-                    disabled={running || kenRunning || autopilotReviewing}
-                    title={
-                      state?.kenModelOverride
-                        ? "Helper is pinned to its own model. Click to change it"
-                        : "Helper follows Kleio's model. Click to pin one"
-                    }
-                    onSelectFollow={() => onSelectKenModel(null)}
-                    followActive={!state?.kenModelOverride}
-                  />
-                </span>
+                <HelperModel
+                  state={state}
+                  models={models}
+                  onSelectKenModel={onSelectKenModel}
+                  running={running}
+                  kenRunning={kenRunning}
+                  autopilotReviewing={autopilotReviewing}
+                />
               </>
             )}
           </span>

@@ -58,15 +58,15 @@ vi.mock("../agent", () => ({
   arrangeAllWindows: vi.fn(),
 }));
 
-const BAR = "html:not(.platform-ios) :not(.settings-screen) > .picker-head";
-const RADIO = "html:not(.platform-ios) .radio-modal";
-const GUIDE = "html:not(.platform-ios) .session-help";
-const SCORECARD = "html:not(.platform-ios) .scorecard-modal";
-const NOTES = "html:not(.platform-ios) .notes-modal";
-const MODAL = "html:not(.platform-ios) .modal";
-const SWITCH = "html:not(.platform-ios) .cl-switch";
-const CAST_SWITCH = "html:not(.platform-ios) .cast-switch";
-const KLEIO = "html:not(.platform-ios) .kleio-screen";
+const BAR = "html:root :not(.settings-screen) > .picker-head";
+const RADIO = "html:root .radio-modal";
+const GUIDE = "html:root .session-help";
+const SCORECARD = "html:root .scorecard-modal";
+const NOTES = "html:root .notes-modal";
+const MODAL = "html:root .modal";
+const SWITCH = "html:root .cl-switch";
+const CAST_SWITCH = "html:root .cast-switch";
+const KLEIO = "html:root .kleio-screen";
 
 /** A specialist with one weekly schedule, as its page and its dialogs get it. */
 const scout = {
@@ -161,14 +161,14 @@ describe("the flat top bar and radio dialog", () => {
     );
   });
 
-  it("leaves Settings' own flat header and the iPhone's bar alone", async () => {
+  it("leaves Settings' own flat header alone, and draws the iPhone's bar like the desktop's", async () => {
     await mountBar("picker settings-screen");
     expect(screen.getByRole("button", { name: "Back" }).matches(`${BAR} .btn`)).toBe(false);
     cleanup();
 
     document.documentElement.classList.replace("platform-macos", "platform-ios");
     await mountBar();
-    expect(screen.getByRole("button", { name: "Back" }).matches(`${BAR} .btn`)).toBe(false);
+    expect(screen.getByRole("button", { name: "Back" }).matches(`${BAR} .btn-ghost`)).toBe(true);
   });
 
   it("draws the radio dialog flat: panel, station list, Play, slider and close", async () => {
@@ -177,7 +177,7 @@ describe("the flat top bar and radio dialog", () => {
       fireEvent.click(screen.getByTitle("Internet radio"));
     });
     const dialog = screen.getByRole("dialog", { name: "Internet Radio" });
-    expect(dialog.matches("html:not(.platform-ios) .modal.radio-modal")).toBe(true);
+    expect(dialog.matches("html:root .modal.radio-modal")).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Station" }));
     const parts: Array<[Element, string]> = [
@@ -193,7 +193,7 @@ describe("the flat top bar and radio dialog", () => {
       expect(chromeCss, selector).toContain(`${RADIO} ${selector}`);
     }
     expect(chromeCss).toContain(
-      "html:not(.platform-ios) .modal.radio-modal {\n  border-color: var(--kleio-edge) !important;\n  border-radius: 6px;\n  background: var(--kleio-surface) !important;",
+      "html:root .modal.radio-modal {\n  border-color: var(--kleio-edge) !important;\n  border-radius: 6px;\n  background: var(--kleio-surface) !important;",
     );
     expect(chromeCss).toContain(
       `${RADIO} .dropdown-menu {\n  border-color: var(--kleio-edge) !important;\n  border-radius: 3px;\n  background: var(--kleio-surface) !important;`,
@@ -210,13 +210,13 @@ describe("the flat guide", () => {
       })),
       {
         name: "What Kleio Voice can do",
-        guide: <VoiceGuide phone={false} onClose={() => undefined} />,
+        guide: <VoiceGuide onClose={() => undefined} />,
       },
     ];
     for (const { name, guide } of guides) {
       render(guide);
       const dialog = screen.getByRole("dialog", { name });
-      expect(dialog.matches("html:not(.platform-ios) .modal.session-help")).toBe(true);
+      expect(dialog.matches("html:root .modal.session-help")).toBe(true);
       const parts: Array<[Element | null, string]> = [
         [within(dialog).getByRole("button", { name: "Close" }), ".modal-close"],
         [within(dialog).getByRole("heading", { name }), ".modal-title"],
@@ -231,18 +231,25 @@ describe("the flat guide", () => {
       cleanup();
     }
     expect(chromeCss).toContain(
-      "html:not(.platform-ios) .modal.session-help {\n  border-color: var(--kleio-edge) !important;\n  border-radius: 6px;\n  background: var(--kleio-surface) !important;",
+      "html:root .modal.session-help {\n  border-color: var(--kleio-edge) !important;\n  border-radius: 6px;\n  background: var(--kleio-surface) !important;",
     );
     expect(chromeCss).toContain(
       `${GUIDE} .session-help-section + .session-help-section {\n  padding-top: 20px;\n  border-top: 1px solid var(--kleio-rule);\n}`,
     );
   });
 
-  it("leaves the iPhone's sheet alone", () => {
+  it("is the same panel on the iPhone, for the session's guide and Kleio Voice's", () => {
     document.documentElement.classList.replace("platform-macos", "platform-ios");
     render(<SessionHelp mode="code" phone onClose={() => undefined} />);
-    const sheet = screen.getByRole("dialog", { name: "How this screen works" });
-    expect(sheet.matches("html:not(.platform-ios) .modal.session-help")).toBe(false);
+    const dialog = screen.getByRole("dialog", { name: "How this screen works" });
+    expect(dialog.matches("html:root .modal.session-help")).toBe(true);
+    expect(dialog.querySelector("li p")?.matches(`${GUIDE} .session-help-text`)).toBe(true);
+    cleanup();
+
+    render(<VoiceGuide onClose={() => undefined} />);
+    const voice = screen.getByRole("dialog", { name: "What Kleio Voice can do" });
+    expect(voice.matches("html:root .modal.session-help")).toBe(true);
+    expect(voice.classList.contains("session-help-sheet")).toBe(false);
   });
 });
 
@@ -263,7 +270,7 @@ describe("the flat scorecard", () => {
   it("draws the rank's dialog as the flat panel, its meters square with no glow", () => {
     render(<ScorecardModal snapshot={snapshot} onClose={() => undefined} />);
     const dialog = screen.getByRole("dialog", { name: "Vibesmith" });
-    expect(dialog.matches("html:not(.platform-ios) .modal.scorecard-modal")).toBe(true);
+    expect(dialog.matches("html:root .modal.scorecard-modal")).toBe(true);
     // The rank keeps the colours it earned: only its weight is the sheet's.
     expect(within(dialog).getByText("Vibesmith").className).toContain("rank-fx-gradient");
 
@@ -291,7 +298,7 @@ describe("the flat notes", () => {
   it("draws the notebook as the flat panel around one flat page, lapis-edged while focused", () => {
     render(<NotesModal value="Ship list" onChange={() => undefined} onClose={() => undefined} />);
     const dialog = screen.getByRole("dialog", { name: "Your notes" });
-    expect(dialog.matches("html:not(.platform-ios) .modal.notes-modal")).toBe(true);
+    expect(dialog.matches("html:root .modal.notes-modal")).toBe(true);
     const page = within(dialog).getByRole("textbox", { name: "Your notes" });
     // The page takes focus as the dialog opens, so its focus rule is its resting look.
     expect(document.activeElement).toBe(page);
@@ -306,7 +313,7 @@ describe("the flat notes", () => {
       expect(chromeCss, selector).toContain(`${NOTES} ${selector}`);
     }
     expect(chromeCss).toContain(
-      "html:not(.platform-ios) .modal.notes-modal {\n  border-color: var(--kleio-edge) !important;\n  border-radius: 6px;\n  background: var(--kleio-surface) !important;",
+      "html:root .modal.notes-modal {\n  border-color: var(--kleio-edge) !important;\n  border-radius: 6px;\n  background: var(--kleio-surface) !important;",
     );
     // !important: NotesModal sets the page's fill inline.
     expect(page.getAttribute("style")).toContain("background");
@@ -506,12 +513,12 @@ describe("every other dialog, flat", () => {
     );
   });
 
-  it("leaves the iPhone's dialogs alone", () => {
+  it("draws the iPhone's dialogs the same: the redesign is shared", () => {
     document.documentElement.classList.replace("platform-macos", "platform-ios");
     render(
       <ConfirmModal title="Delete this chat?" message="Gone." onConfirm={none} onClose={none} />,
     );
-    expect(screen.getByRole("dialog", { name: "Delete this chat?" }).matches(MODAL)).toBe(false);
+    expect(screen.getByRole("dialog", { name: "Delete this chat?" }).matches(MODAL)).toBe(true);
   });
 });
 
@@ -524,11 +531,11 @@ describe("toasts, the update banner and the bar's pills, flat", () => {
     // The message is also in the screen reader's live region: take the slip itself.
     const slip = document.querySelector(".toast");
     expect(slip?.textContent).toContain("Saved your settings");
-    expect(slip?.matches("html:not(.platform-ios) .toast")).toBe(true);
+    expect(slip?.matches("html:root .toast")).toBe(true);
     // Toaster colours the mark inline from these tokens, so the rule re-points them.
     expect(slip?.querySelector(".toast-icon")?.getAttribute("style")).toContain("--success");
     expect(chromeCss).toContain(
-      "html:not(.platform-ios) .toast {\n  --primary: var(--kleio-lapis);\n  --success: var(--kleio-done);\n  --warning: var(--kleio-lapis);",
+      "html:root .toast {\n  --primary: var(--kleio-lapis);\n  --success: var(--kleio-done);\n  --warning: var(--kleio-lapis);",
     );
   });
 
@@ -542,16 +549,12 @@ describe("toasts, the update banner and the bar's pills, flat", () => {
     } as Parameters<typeof UpdateBanner>[0]["update"];
     const view = render(<UpdateBanner update={update} />);
     const banner = screen.getByRole("button", { name: /Kleio just got an update/ });
-    expect(banner.matches("html:not(.platform-ios) .update-banner")).toBe(true);
-    expect(
-      screen.getByText("Install").matches("html:not(.platform-ios) .update-banner .badge"),
-    ).toBe(true);
+    expect(banner.matches("html:root .update-banner")).toBe(true);
+    expect(screen.getByText("Install").matches("html:root .update-banner .badge")).toBe(true);
     view.rerender(<UpdateBanner update={{ ...update, phase: "installing", progress: 42 }} />);
     const fill = screen.getByRole("progressbar").querySelector(".update-banner-fill");
-    expect(fill?.matches("html:not(.platform-ios) .update-banner .update-banner-fill")).toBe(true);
-    expect(chromeCss).toContain(
-      "html:not(.platform-ios) .update-banner::after {\n  display: none;\n}",
-    );
+    expect(fill?.matches("html:root .update-banner .update-banner-fill")).toBe(true);
+    expect(chromeCss).toContain("html:root .update-banner::after {\n  display: none;\n}");
   });
 
   it("draws a count or a state in the bar as Settings' outline pill, and not in Settings or the project list", async () => {
@@ -611,9 +614,13 @@ describe("every switch on the desktop, flat", () => {
     expect(chromeCss).toContain(
       `${SWITCH} > input:active:not(:disabled) + span::after {\n  top: 3px;\n  right: auto;\n  left: 3px;\n  width: 8px;\n  height: 8px;\n  border-radius: 0;\n  background: var(--kleio-text-2);\n  box-shadow: none;\n  scale: none;`,
     );
-    // The pointer and a press are named beside the resting thumb, so glass.css's swell loses.
+    // A press is named beside the resting thumb, so glass.css's swell loses; the
+    // pointer's twin keeps the desktop's scope (a tap leaves iOS's hover on).
     expect(chromeCss).toContain(
-      `${SWITCH} > input + span::after,\n${SWITCH}:hover > input:not(:disabled) + span::after,\n${SWITCH} > input:active:not(:disabled) + span::after {`,
+      `${SWITCH} > input + span::after,\n${SWITCH} > input:active:not(:disabled) + span::after {`,
+    );
+    expect(chromeCss).toContain(
+      "html:not(.platform-ios) .cl-switch:hover > input:not(:disabled) + span::after {",
     );
   });
 
@@ -649,13 +656,13 @@ describe("every switch on the desktop, flat", () => {
     );
   });
 
-  it("leaves the iPhone's switches alone", async () => {
+  it("draws the iPhone's switches the same", async () => {
     document.documentElement.classList.replace("platform-macos", "platform-ios");
     await act(async () => {
       render(<Schedules blob={scout} onChanged={async () => undefined} />);
     });
     const onPage = screen.getByRole("checkbox", { name: "Morning check-in on" });
-    expect(onPage.matches(`${SWITCH} > input`)).toBe(false);
+    expect(onPage.matches(`${SWITCH} > input`)).toBe(true);
   });
 });
 
@@ -710,15 +717,13 @@ describe("Specialists and Groups, flat", () => {
     }
   });
 
-  it("leaves the iPhone's specialists alone", () => {
+  it("draws the iPhone's specialists the same", () => {
     document.documentElement.classList.replace("platform-macos", "platform-ios");
     render(
       <div className="picker kleio-screen">
         <KleioPanel title="Job" />
       </div>,
     );
-    expect(screen.getByRole("region", { name: "Job" }).matches(`${KLEIO} .kleio-panel`)).toBe(
-      false,
-    );
+    expect(screen.getByRole("region", { name: "Job" }).matches(`${KLEIO} .kleio-panel`)).toBe(true);
   });
 });

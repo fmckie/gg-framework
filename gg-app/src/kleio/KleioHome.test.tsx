@@ -194,7 +194,7 @@ describe("KleioHome", () => {
     expect(goals.getAttribute("aria-disabled")).toBeNull();
   });
 
-  it("keeps the iPhone's column: five domed buttons with icons, and a small Voice agent under them", async () => {
+  it("draws the iPhone's Home in the desktop's plates: the same six, Voice agent last", async () => {
     document.documentElement.classList.add("platform-ios");
     try {
       renderHome();
@@ -203,22 +203,22 @@ describe("KleioHome", () => {
         act(() => setVoiceReady(true));
         return screen.getByRole("button", { name: "Voice agent" });
       });
-      const column = [...document.querySelectorAll(".home-actions > button")];
-      expect(column.map((b) => b.textContent)).toEqual([
+      const plates = [...document.querySelectorAll(".home-actions > button")];
+      expect(plates.map((b) => b.textContent)).toEqual([
         "Chat",
         "Code",
         "Motion",
         "Goals",
         "Specialists",
+        "Voice agent",
       ]);
-      for (const button of column) {
-        expect(button.className).toBe("kleio-cloisonne home-action");
-        expect(button.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+      for (const plate of plates) {
+        expect(plate.classList.contains("kleio-plate")).toBe(true);
+        expect(plate.querySelectorAll("canvas[aria-hidden='true']")).toHaveLength(3);
       }
-      expect(talk.className).toBe("kleio-cloisonne is-small home-brief");
-      expect(talk.parentElement?.className).toBe("home-quiet");
+      expect(talk.classList.contains("home-brief")).toBe(true);
       expect(talk.getAttribute("aria-keyshortcuts")).toBe("Meta+Shift+B");
-      expect(document.querySelector(".kleio-plate")).toBeNull();
+      expect(document.querySelector(".home-quiet, .kleio-cloisonne")).toBeNull();
       act(() => setVoiceReady(false));
     } finally {
       document.documentElement.classList.remove("platform-ios");

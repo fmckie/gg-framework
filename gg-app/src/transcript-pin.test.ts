@@ -7,7 +7,6 @@ import {
   pinAfterScroll,
   pinAfterTouchScroll,
   pinAfterWheel,
-  showJumpToLatest,
 } from "./transcript-pin";
 
 /**
@@ -45,9 +44,6 @@ function liveTranscript(content = 2000, viewport = 400) {
     },
     get distance(): number {
       return distanceFromBottom(el);
-    },
-    get jumpChip(): boolean {
-      return showJumpToLatest(pinned, el);
     },
     /** One streaming commit: the reply grows, then App re-pins if following. */
     commit(grow = 12): void {
@@ -218,38 +214,6 @@ describe("a finger on the transcript while a reply streams", () => {
 
     expect(t.pinned).toBe(true);
     expect(t.distance).toBe(0);
-  });
-});
-
-describe("jump to latest", () => {
-  it("shows once the reader has scrolled away from new output", () => {
-    const t = liveTranscript();
-
-    t.touch();
-    t.drag(-200);
-    t.release();
-
-    expect(t.jumpChip).toBe(true);
-  });
-
-  it("stays hidden while following, even as a reply streams", () => {
-    const t = liveTranscript();
-
-    t.commit(30);
-    t.commit(30);
-
-    expect(t.jumpChip).toBe(false);
-  });
-
-  it("stays hidden for a nudge that leaves the newest line on screen", () => {
-    const t = liveTranscript();
-
-    t.touch();
-    t.drag(-20);
-    t.release();
-
-    expect(t.pinned).toBe(false);
-    expect(t.jumpChip).toBe(false);
   });
 });
 

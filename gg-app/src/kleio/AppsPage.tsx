@@ -1,27 +1,17 @@
 // Apps: the services Kleio and every Blob can use for you (Gmail, Calendar,
-// Notion…), through Composio on the Mac mini. Connected apps sit on top; the
-// catalogue below is a searchable grid. Sign-in happens in the browser, and the
-// page notices when it's done.
+// Notion…), through Composio on the Mac mini. Sign-in happens in the browser,
+// and the page notices when it's done.
 //
-// This file loads, searches, connects and disconnects for both layouts. The
-// phone's markup is below; the desktop's is the shelf (AppsShelf.tsx).
+// This file loads, searches, connects and disconnects; the markup is the shelf
+// (AppsShelf.tsx).
 //
 // Logos come from Composio's logo CDN, addressed by the app's slug — never
 // from the catalogue's free-form logo links, which can point anywhere. The
 // app's content security policy allows images from that one origin only.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ArrowSquareOutIcon,
-  CheckCircleIcon,
-  MagnifyingGlassIcon,
-  PlugsIcon,
-  XIcon,
-} from "@phosphor-icons/react";
 import { openUrl } from "../agent";
 import { Badge } from "../Badge";
-import { isPhone } from "../platform";
-import { SettingsCard } from "../settings-section";
 import { SettingsHeaderStatus } from "../settings-header";
 import { theme } from "../theme";
 import {
@@ -39,7 +29,6 @@ import {
 } from "./kleioApi";
 import { connectionState, type ConnectionState } from "./connectionState";
 import { AppsShelf } from "./AppsShelf";
-import { KeyForm } from "./KeyForm";
 import { takeSettingsIntent } from "./settingsIntent";
 
 /** The one image origin the CSP allows (src-tauri/tauri.conf.json). */
@@ -91,21 +80,6 @@ export function logoUrl(slug: string): string | null {
 // In its own file so Overview can read an app's state without loading this page.
 export { connectionState, type ConnectionState };
 
-function stateText(status: string): string {
-  switch (connectionState(status)) {
-    case "connected":
-      return "Connected";
-    case "pending":
-      return "Finish signing in, in your browser";
-    case "expired":
-      return "Expired — reconnect it";
-    case "failed":
-      return "Didn't connect — try again";
-    case "other":
-      return status.toLowerCase();
-  }
-}
-
 const ACRONYMS = new Set(["ai", "api", "ats", "cms", "crm", "erp", "hr", "it", "seo", "sms"]);
 
 /**
@@ -122,37 +96,6 @@ export function categoryLabel(categories: readonly string[]): string | null {
     .join(" ");
 }
 
-export function AppLogo({
-  slug,
-  name,
-  size = 40,
-}: {
-  slug: string;
-  name: string;
-  size?: number;
-}): React.ReactElement {
-  const src = logoUrl(slug);
-  const [failed, setFailed] = useState(false);
-  return (
-    <span className="app-logo" style={{ width: size, height: size }} aria-hidden="true">
-      {src && !failed ? (
-        <img
-          src={src}
-          alt=""
-          width={size - 12}
-          height={size - 12}
-          loading="lazy"
-          decoding="async"
-          referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <span className="app-logo-letter">{name.trim().charAt(0).toUpperCase() || "?"}</span>
-      )}
-    </span>
-  );
-}
-
 export function AppsPage(): React.ReactElement {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -161,7 +104,6 @@ export function AppsPage(): React.ReactElement {
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   /** The last thing that went wrong. `list`: the host couldn't be asked for your apps. */
   const [error, setError] = useState<{ text: string; list: boolean } | null>(null);
   /** The last connect needs the user's own keys in Composio: offer the way there. */
@@ -169,19 +111,16 @@ export function AppsPage(): React.ReactElement {
   /** Apps found to need no sign-in after a connect was refused (older hosts). */
   const [noSignIn, setNoSignIn] = useState<ReadonlySet<string>>(new Set());
   const query = useRef("");
-  // The desktop only: who may change the Composio key, and where it is kept.
-  // Null until the host says, and for an older host that can't: as before then.
-  // The phone has the key on Setup.
+  // Who may change the Composio key, and where it is kept. Null until the host
+  // says, and for an older host that can't: as before then.
   const [keys, setKeys] = useState<SetupStatus | null>(null);
-  const desktop = !isPhone();
   const loadKeys = useCallback(async (): Promise<void> => {
-    if (!desktop) return;
     try {
       setKeys(await getSetupStatus());
     } catch {
       setKeys(null);
     }
-  }, [desktop]);
+  }, []);
   useEffect(() => void loadKeys(), [loadKeys]);
 
   const load = useCallback(async (): Promise<void> => {
@@ -279,284 +218,50 @@ export function AppsPage(): React.ReactElement {
     }
   }
 
-  async function remove(c: Connection): Promise<void> {
-    setPending(c.id);
-    setError(null);
-    try {
-      await disconnect(c.id);
-      setConfirmRemove(null);
-      await load();
-    } catch (e) {
-      setError({ text: errorText(e), list: false });
-    } finally {
-      setPending(null);
-    }
-  }
-
-  // What Overview's Fix asked the desktop's page for, if it did: read once.
-  const [toReconnect] = useState(() => desktop && takeSettingsIntent() === "apps-fix");
-  if (desktop) {
-    const connected = connections.filter((c) => connectionState(c.status) === "connected");
-    return (
-      <>
-        <SettingsHeaderStatus>
-          {configured === true && (
-            <Badge color={connected.length > 0 ? theme.success : undefined}>
-              {`${connected.length} connected`}
-            </Badge>
-          )}
-        </SettingsHeaderStatus>
-        <AppsShelf
-          words={{ logoUrl, categoryLabel, authConfigsUrl: COMPOSIO_AUTH_CONFIGS_URL }}
-          configured={configured}
-          connections={connections}
-          listFailed={error?.list === true}
-          error={error && !error.list ? error.text : null}
-          needsOwnKeys={setupFor !== null}
-          search={search}
-          onSearch={setSearch}
-          toolkits={toolkits}
-          hasMore={cursor !== null}
-          loadingMore={loadingMore}
-          onMore={() => void more()}
-          pending={pending}
-          noSignIn={noSignIn}
-          keys={keys}
-          focusReconnect={toReconnect}
-          onConnect={(slug) => void connect(slug)}
-          onRetry={() => void load()}
-          onDisconnect={async (c) => {
-            await disconnect(c.id);
-            await load();
-          }}
-          onKeySaved={(status) => {
-            setKeys(status);
-            void load();
-          }}
-          onRemoveKey={async () => {
-            setKeys(await removeSetupKey("composio"));
-            await load();
-          }}
-        />
-      </>
-    );
-  }
-
-  if (configured === false) {
-    return (
-      <SettingsCard
-        title="Apps aren't set up yet"
-        description="Apps connect through Composio on your host."
-      >
-        <p className="kleio-page-intro">
-          Add a Composio API key and Gmail, Calendar, Notion and hundreds more can work for Kleio
-          and every specialist.
-        </p>
-        <KeyForm name="composio" onSaved={() => void load()} />
-      </SettingsCard>
-    );
-  }
-
-  const active = connections.filter((c) => connectionState(c.status) === "connected");
-  const bySlug = new Map(connections.map((c) => [c.toolkit, c]));
-
+  // What Overview's Fix asked this page for, if it did: read once.
+  const [toReconnect] = useState(() => takeSettingsIntent() === "apps-fix");
+  const connected = connections.filter((c) => connectionState(c.status) === "connected");
   return (
     <>
       <SettingsHeaderStatus>
-        {configured !== null && (
-          <Badge color={active.length > 0 ? theme.success : undefined}>
-            {`${active.length} connected`}
+        {configured === true && (
+          <Badge color={connected.length > 0 ? theme.success : undefined}>
+            {`${connected.length} connected`}
           </Badge>
         )}
       </SettingsHeaderStatus>
-
-      <p className="kleio-page-intro">
-        Connected apps work for Kleio and every specialist — read your mail, check your calendar,
-        update Notion. You sign in once, in your browser.
-      </p>
-
-      {error && (
-        <div className="kleio-error app-error" role="alert">
-          <span>{error.text}</span>
-          {setupFor && (
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => void openUrl(COMPOSIO_AUTH_CONFIGS_URL)}
-            >
-              <ArrowSquareOutIcon size={14} weight="bold" aria-hidden="true" />
-              Open Composio
-            </button>
-          )}
-        </div>
-      )}
-
-      {connections.length > 0 && (
-        <SettingsCard title="Your apps" description="Kleio and your specialists can use these now.">
-          <ul className="app-mine">
-            {connections.map((c) => {
-              const state = connectionState(c.status);
-              return (
-                <li key={c.id} className="app-mine-row">
-                  <AppLogo slug={c.toolkit} name={c.name} size={36} />
-                  <span className="app-mine-text">
-                    <span className="app-mine-name">{c.name}</span>
-                    <span className={`app-mine-state is-${state}`}>
-                      {state === "connected" && (
-                        <CheckCircleIcon size={13} weight="fill" aria-hidden="true" />
-                      )}
-                      {stateText(c.status)}
-                    </span>
-                  </span>
-                  {confirmRemove === c.id ? (
-                    <span className="app-confirm" role="group" aria-label={`Disconnect ${c.name}?`}>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => setConfirmRemove(null)}
-                        disabled={pending === c.id}
-                      >
-                        Keep
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={() => void remove(c)}
-                        disabled={pending === c.id}
-                      >
-                        {pending === c.id ? "Disconnecting…" : "Disconnect"}
-                      </button>
-                    </span>
-                  ) : (
-                    <span className="app-confirm">
-                      {(state === "expired" || state === "failed") && (
-                        <button
-                          type="button"
-                          className="btn btn-sm"
-                          onClick={() => void connect(c.toolkit)}
-                          disabled={pending !== null}
-                        >
-                          Reconnect
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm app-remove"
-                        onClick={() => setConfirmRemove(c.id)}
-                        aria-label={`Disconnect ${c.name}`}
-                        title={`Disconnect ${c.name}`}
-                      >
-                        <XIcon size={14} weight="bold" aria-hidden="true" />
-                      </button>
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </SettingsCard>
-      )}
-
-      <SettingsCard
-        title="Add an app"
-        description="Search hundreds of apps. Connecting opens your browser."
-      >
-        <label className="app-search">
-          <MagnifyingGlassIcon size={16} weight="bold" aria-hidden="true" />
-          <input
-            className="modal-input"
-            type="search"
-            placeholder="Search Gmail, Notion, Calendar…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            aria-label="Search apps"
-            spellCheck={false}
-          />
-        </label>
-
-        {toolkits === null ? (
-          <div className="app-grid app-grid-skeleton" aria-hidden="true">
-            {Array.from({ length: 6 }, (_, i) => (
-              <div key={i} className="app-tile" />
-            ))}
-          </div>
-        ) : toolkits.length === 0 ? (
-          <p className="kleio-empty">No apps match “{search.trim()}”.</p>
-        ) : (
-          <>
-            <ul className="app-grid">
-              {toolkits.map((t) => {
-                const existing = bySlug.get(t.slug);
-                const state = existing ? connectionState(existing.status) : null;
-                const cat = categoryLabel(t.categories);
-                const ready = t.auth === "none" || noSignIn.has(t.slug);
-                return (
-                  <li key={t.slug} className="app-tile">
-                    <span className="app-tile-top">
-                      <AppLogo slug={t.slug} name={t.name} />
-                      <span className="app-tile-name">
-                        <span className="app-tile-title">{t.name}</span>
-                        {cat && <span className="app-tile-category">{cat}</span>}
-                      </span>
-                    </span>
-                    <span className="app-tile-desc">{t.description || "\u00a0"}</span>
-                    {state === "connected" ? (
-                      <span className="app-tile-foot">
-                        <span className="app-tile-connected">
-                          <CheckCircleIcon size={14} weight="fill" aria-hidden="true" />
-                          Connected
-                        </span>
-                      </span>
-                    ) : ready ? (
-                      <span className="app-tile-foot">
-                        <span
-                          className="app-tile-connected"
-                          title="Kleio and your specialists can use it without signing in."
-                        >
-                          <CheckCircleIcon size={14} weight="fill" aria-hidden="true" />
-                          Ready · no sign-in
-                        </span>
-                      </span>
-                    ) : (
-                      <span className="app-tile-foot">
-                        {t.auth === "setup" && (
-                          <span className="app-tile-note">Needs your own keys</span>
-                        )}
-                        <button
-                          type="button"
-                          className="btn btn-sm app-connect"
-                          disabled={pending !== null}
-                          onClick={() => void connect(t.slug)}
-                          aria-label={`Connect ${t.name}`}
-                        >
-                          <PlugsIcon size={14} weight="bold" aria-hidden="true" />
-                          {pending === t.slug
-                            ? "Opening…"
-                            : state === "pending"
-                              ? "Waiting…"
-                              : "Connect"}
-                        </button>
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-            {cursor && (
-              <div className="app-more">
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => void more()}
-                  disabled={loadingMore}
-                >
-                  {loadingMore ? "Loading…" : "Show more apps"}
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </SettingsCard>
+      <AppsShelf
+        words={{ logoUrl, categoryLabel, authConfigsUrl: COMPOSIO_AUTH_CONFIGS_URL }}
+        configured={configured}
+        connections={connections}
+        listFailed={error?.list === true}
+        error={error && !error.list ? error.text : null}
+        needsOwnKeys={setupFor !== null}
+        search={search}
+        onSearch={setSearch}
+        toolkits={toolkits}
+        hasMore={cursor !== null}
+        loadingMore={loadingMore}
+        onMore={() => void more()}
+        pending={pending}
+        noSignIn={noSignIn}
+        keys={keys}
+        focusReconnect={toReconnect}
+        onConnect={(slug) => void connect(slug)}
+        onRetry={() => void load()}
+        onDisconnect={async (c) => {
+          await disconnect(c.id);
+          await load();
+        }}
+        onKeySaved={(status) => {
+          setKeys(status);
+          void load();
+        }}
+        onRemoveKey={async () => {
+          setKeys(await removeSetupKey("composio"));
+          await load();
+        }}
+      />
     </>
   );
 }
