@@ -136,7 +136,6 @@ import {
   HELPER_MENTION,
   helperQuestion,
   helperTokenParts,
-  withHelperMention,
 } from "./helper-mention";
 import { Toaster } from "./Toaster";
 import { Confetti } from "./Confetti";
@@ -184,9 +183,9 @@ import {
   type ChecklistLoad,
   type ChecklistNotice,
 } from "./placeholder/ChecklistView";
-import { AppFooter } from "./AppFooter";
+import { AppFooter, HelperModel } from "./AppFooter";
 import { ModelPanel, applyThinkingLevel } from "./ModelPanel";
-import { MorePanel, PanelEntryBar } from "./MorePanel";
+import { MorePanel, PanelEntryBar, type MorePanelPhoneTools } from "./MorePanel";
 import { BranchPanel } from "./BranchPanel";
 import { Composer } from "./Composer";
 import { WorkspaceHeaderActions } from "./WorkspaceHeaderActions";
@@ -232,6 +231,9 @@ const INPUT_PLACEHOLDERS = [
   `Unsure how to proceed? Ask ${HELPER_MENTION}`,
   `Need a quick review? Ask ${HELPER_MENTION}`,
 ] as const;
+// The phone's field is narrow: one short line that fits, idle or running.
+// Typing @help still asks Helper (SessionHelp says so).
+const PHONE_INPUT_PLACEHOLDER = "Message Kleio";
 const RUNNING_INPUT_PLACEHOLDERS = [
   "Agent is working. Add a follow-up if you want",
   "Got another thought? Queue it here",
@@ -895,9 +897,11 @@ function App(): React.ReactElement {
     !showChecklist &&
     workspaceMode === "code" &&
     input.length === 0;
-  const inputPlaceholder = running
-    ? RUNNING_INPUT_PLACEHOLDERS[placeholderIndex % RUNNING_INPUT_PLACEHOLDERS.length]
-    : INPUT_PLACEHOLDERS[placeholderIndex % INPUT_PLACEHOLDERS.length];
+  const inputPlaceholder = isPhone()
+    ? PHONE_INPUT_PLACEHOLDER
+    : running
+      ? RUNNING_INPUT_PLACEHOLDERS[placeholderIndex % RUNNING_INPUT_PLACEHOLDERS.length]
+      : INPUT_PLACEHOLDERS[placeholderIndex % INPUT_PLACEHOLDERS.length];
   const setAnimatedPlaceholder = useCallback((text: string) => {
     displayPlaceholderRef.current = text;
     setDisplayPlaceholder(text);
@@ -1837,22 +1841,6 @@ function App(): React.ReactElement {
       el?.focus();
       el?.setSelectionRange(head.length, head.length);
     });
-  }
-
-  // iPhone chip: address the draft to the helper, sparing the trip to the
-  // symbols keyboard for `@`. Focus inside the tap itself, because iOS only
-  // raises the keyboard for a focus the person caused.
-  function addressHelper(): void {
-    const el = inputRef.current;
-    const next = withHelperMention(input);
-    setInput(next);
-    setCaret(next.length);
-    setMention(null);
-    el?.focus();
-    // A changed draft gets its caret at the end when React writes the value;
-    // only an unchanged one needs moving. (Deferring this to a frame later
-    // moved the caret back behind a keystroke typed in between.)
-    if (next === input) el?.setSelectionRange(next.length, next.length);
   }
 
   // Drop a referenced-file chip.
@@ -2813,7 +2801,8 @@ function App(): React.ReactElement {
     setThinkingPreview(undefined);
     modelTriggerRef.current?.focus({ preventScroll: true });
   };
-  // More holds only what this session has: today the Code checklist.
+  // More holds only what this session has: the Code checklist, and on the
+  // phone the header's tools.
   const showMoreRow = workspaceMode === "code";
   // The checklist takes the whole session, so More does not wait under it.
   if (showChecklist && morePanelOpen) setMorePanelOpen(false);
@@ -2828,6 +2817,43 @@ function App(): React.ReactElement {
     setThinkingPreview(undefined);
     setBranchPanelOpen(false);
     setMorePanelOpen(true);
+  };
+  // The phone's header keeps Back, Autopilot and New: its other tools are here.
+  const openTaskCount = projectTasks.filter((t) => t.status !== "done").length;
+  const morePhoneTools: MorePanelPhoneTools = {
+    onNotes: () => {
+      setMorePanelOpen(false);
+      setShowNotes(true);
+    },
+    tasksLabel: openTaskCount > 0 ? `Tasks (${openTaskCount})` : "Tasks",
+    onTasks: () => {
+      setMorePanelOpen(false);
+      openTasks();
+    },
+    commit: needsGitInit
+      ? {
+          label: "Initialize Git",
+          disabled: running,
+          onClick: () => {
+            setMorePanelOpen(false);
+            setShowInitGit(true);
+          },
+        }
+      : commitCommand && {
+          label: `/${commitCommand}`,
+          disabled: running,
+          onClick: () => {
+            setMorePanelOpen(false);
+            submitText(
+              `/${commitCommand}`,
+              hasCommit ? "Committing\u2026" : "Setting up commits\u2026",
+            );
+          },
+        },
+    onHelp: () => {
+      setMorePanelOpen(false);
+      setShowSessionHelp(true);
+    },
   };
   // Branch holds only what the session's state carries, and all of it hangs
   // off the branch and its GitHub repository: without both there is no trigger.
@@ -3017,6 +3043,7 @@ function App(): React.ReactElement {
           windowFocused={windowFocused}
           hasCommit={hasCommit}
           submitText={submitText}
+          phone={isPhone()}
         />
       </WorkspaceHeader>
 
@@ -3067,6 +3094,7 @@ function App(): React.ReactElement {
             liveTools={liveToolFeed}
             waitingOnUser={goalWaitingOnUser}
             finish={goalFinish}
+            onShowChat={() => setGoalChatFor(activeGoalId)}
           />
         </Suspense>
       )}
@@ -3286,6 +3314,18 @@ function App(): React.ReactElement {
             }}
             onPreviewThinking={setThinkingPreview}
             onClose={closeModelPanel}
+            helper={
+              isPhone() && workspaceMode === "code" ? (
+                <HelperModel
+                  state={state}
+                  models={models}
+                  onSelectKenModel={onSelectKenModel}
+                  running={running}
+                  kenRunning={kenRunning}
+                  autopilotReviewing={autopilotReviewing}
+                />
+              ) : undefined
+            }
           />
         )}
         {morePanelOpen && showMoreRow && (
@@ -3296,6 +3336,7 @@ function App(): React.ReactElement {
               openChecklist();
             }}
             onClose={closeMorePanel}
+            phoneTools={isPhone() ? morePhoneTools : undefined}
           />
         )}
         {branchPanelOpen && showMoreRow && branchName && branchRepoUrl && (
@@ -3344,7 +3385,6 @@ function App(): React.ReactElement {
           addFiles={addFiles}
           phoneComposer={phoneComposer}
           workspaceMode={workspaceMode}
-          addressHelper={addressHelper}
           enhanceAnim={enhanceAnim}
           onEnhanceAnimDone={onEnhanceAnimDone}
           kenActive={kenActive}

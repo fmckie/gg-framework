@@ -15,6 +15,7 @@ import { ContextButton } from "./ContextButton";
 import { BackgroundTasksButton } from "./BackgroundTasksButton";
 import { ShimmerText } from "./ShimmerText";
 import { FooterSkeleton } from "./Skeleton";
+import { isPhone } from "./platform";
 
 // Vertical divider between footer segments (mirrors the TUI's ` \u2502 ` in
 // border color). Rendered between adjacent groups, never leading/trailing.
@@ -42,6 +43,50 @@ function thinkingColor(level: string | null | undefined): string {
   if (level === "medium") return theme.accent;
   if (level === "high") return theme.warning;
   return MAX_POWER_COLOR; // xhigh / max
+}
+
+/** The Helper's model. The phone has no room for it beside Kleio's, so there
+ *  it is in the Model panel (App.tsx) instead of the footer. */
+export function HelperModel({
+  state,
+  models,
+  onSelectKenModel,
+  running,
+  kenRunning,
+  autopilotReviewing,
+}: {
+  state: AgentState | null;
+  models: ModelOption[];
+  onSelectKenModel: (modelId: string | null) => void;
+  running: boolean;
+  kenRunning: boolean;
+  autopilotReviewing: boolean;
+}): React.ReactElement {
+  return (
+    <span className="model-anchor">
+      <span className="model-label" style={{ color: theme.ken }}>
+        Helper
+      </span>
+      <ModelSelect
+        models={models}
+        currentModel={state?.kenModel ?? state?.model ?? ""}
+        onSelect={(id) => onSelectKenModel(id)}
+        color={theme.ken}
+        // Ken's pin retargets BOTH his sessions (chat + the
+        // autopilot reviewer), so it has to stay locked while
+        // either is mid-turn — same rule the GG picker follows,
+        // and the sidecar now answers 409 to match.
+        disabled={running || kenRunning || autopilotReviewing}
+        title={
+          state?.kenModelOverride
+            ? "Helper is pinned to its own model. Click to change it"
+            : "Helper follows Kleio's model. Click to pin one"
+        }
+        onSelectFollow={() => onSelectKenModel(null)}
+        followActive={!state?.kenModelOverride}
+      />
+    </span>
+  );
 }
 
 export function AppFooter({
@@ -139,7 +184,13 @@ export function AppFooter({
                   previewing && modelPanel.previewLevel !== undefined
                     ? modelPanel.previewLevel
                     : (state?.thinkingLevel ?? null);
-                const label = level ? `Thinking ${level}` : "Thinking off";
+                // The word is its own element: the phone shows the bars and the level.
+                const label = (
+                  <>
+                    <span className="thinking-word">Thinking </span>
+                    {level ?? "off"}
+                  </>
+                );
                 const maxPower = level === "xhigh" || level === "max";
                 // Reasoning level is baked into the request the run is already
                 // streaming, so a mid-turn cycle changes nothing about it and
@@ -212,32 +263,17 @@ export function AppFooter({
                 />
               )}
             </span>
-            {workspaceMode === "code" && (
+            {workspaceMode === "code" && !isPhone() && (
               <>
                 <FooterSep />
-                <span className="model-anchor">
-                  <span className="model-label" style={{ color: theme.ken }}>
-                    Helper
-                  </span>
-                  <ModelSelect
-                    models={models}
-                    currentModel={state?.kenModel ?? state?.model ?? ""}
-                    onSelect={(id) => onSelectKenModel(id)}
-                    color={theme.ken}
-                    // Ken's pin retargets BOTH his sessions (chat + the
-                    // autopilot reviewer), so it has to stay locked while
-                    // either is mid-turn — same rule the GG picker follows,
-                    // and the sidecar now answers 409 to match.
-                    disabled={running || kenRunning || autopilotReviewing}
-                    title={
-                      state?.kenModelOverride
-                        ? "Helper is pinned to its own model. Click to change it"
-                        : "Helper follows Kleio's model. Click to pin one"
-                    }
-                    onSelectFollow={() => onSelectKenModel(null)}
-                    followActive={!state?.kenModelOverride}
-                  />
-                </span>
+                <HelperModel
+                  state={state}
+                  models={models}
+                  onSelectKenModel={onSelectKenModel}
+                  running={running}
+                  kenRunning={kenRunning}
+                  autopilotReviewing={autopilotReviewing}
+                />
               </>
             )}
           </span>

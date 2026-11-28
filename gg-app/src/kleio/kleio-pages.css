@@ -257,12 +257,14 @@
     background-color var(--t-fast),
     color var(--t-fast);
 }
-.kleio-text-btn:hover {
+/* Hover only where there is a pointer: a tap leaves iOS's hover stuck on, and
+   the phone shows the danger red at rest instead (kleio-phone.css). */
+html:not(.platform-ios) .kleio-text-btn:hover {
   background: rgb(255 255 255 / 0.08);
   color: var(--text);
 }
-.kleio-text-btn.is-danger:hover,
-.kleio-danger-btn:hover {
+html:not(.platform-ios) .kleio-text-btn.is-danger:hover,
+html:not(.platform-ios) .kleio-danger-btn:hover {
   color: var(--error);
 }
 .kleio-text-btn:focus-visible {

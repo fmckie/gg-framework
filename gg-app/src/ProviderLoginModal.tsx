@@ -349,7 +349,8 @@ export function ProviderLoginModal({
             Back
           </button>
         )}
-        <button className="modal-btn" onClick={onClose}>
+        {/* modal-btn-close: it does what the head's × does (kleio-phone.css). */}
+        <button className="modal-btn modal-btn-close" onClick={onClose}>
           {needCode || busy ? "Cancel" : "Close"}
         </button>
         {method === "apikey" && (

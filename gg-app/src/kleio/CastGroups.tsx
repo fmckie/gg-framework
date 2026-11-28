@@ -145,12 +145,17 @@ export function CastGroups({
               {replying > 0 && (
                 <span className="cast-pill is-live">
                   <span className="cast-dot" aria-hidden="true" />
-                  {`${replying} replying`}
+                  {replying}
+                  <span className="cast-pill-word"> replying</span>
                 </span>
               )}
             </span>
           )
         }
+        phoneMenu={[
+          ...(onOpenApps ? [{ label: "Connect apps", onSelect: onOpenApps }] : []),
+          ...(!welcome ? [{ label: "New group", onSelect: onCreate, disabled: noAgents }] : []),
+        ]}
         actions={
           <>
             {onOpenApps && <AppsButton onClick={onOpenApps} />}

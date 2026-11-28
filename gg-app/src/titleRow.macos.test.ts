@@ -35,8 +35,8 @@ describe("the 48px title row", () => {
   });
 
   it("keeps the 48px and the lights' gutter off the iPhone, whose strip is as tall as its wrapped lines", () => {
-    expect(phoneCss).toContain(
-      "html.platform-ios .app.app-session .chat-head-strip {\n  flex-wrap: wrap;\n  height: auto;\n  gap: 0 12px;\n  padding: 2px 16px;\n}",
+    expect(phoneCss).toMatch(
+      /\nhtml\.platform-ios \.app\.app-session \.chat-head-strip \{\n {2}flex-wrap: wrap;\n {2}height: auto;\n[^}]*\n {2}padding: [^;]*16px[^;]*;\n\}/,
     );
   });
 });

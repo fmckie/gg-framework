@@ -91,6 +91,7 @@ export function ModelPanel({
   onApplyThinking,
   onPreviewThinking,
   onClose,
+  helper,
 }: {
   id: string;
   models: readonly ModelOption[];
@@ -102,6 +103,8 @@ export function ModelPanel({
   /** The level being tried in the panel; undefined when it matches the saved one. */
   onPreviewThinking: (level: string | null | undefined) => void;
   onClose: () => void;
+  /** The phone's Helper model picker, which its footer has no room for. */
+  helper?: React.ReactNode;
 }): React.ReactElement {
   const [query, setQuery] = useState("");
   const [candidate, setCandidate] = useState(currentModel);
@@ -217,6 +220,7 @@ export function ModelPanel({
         </strong>
         <small>{`${allGroups.length} ${allGroups.length === 1 ? "provider" : "providers"}`}</small>
       </div>
+      {helper && <div className="model-helper">{helper}</div>}
       <label className="model-search">
         Search
         <input

@@ -116,6 +116,11 @@ export function CastRoom({
             <span className="cast-pill">{plural(group.members.length, "member")}</span>
           )
         }
+        phoneMenu={[
+          { label: "New conversation", onSelect: () => setConfirmNew(true), disabled: starting },
+          { label: sidebar.open ? "Hide assets" : "Assets", onSelect: sidebar.toggle },
+          { label: "Edit", onSelect: onEdit },
+        ]}
         actions={
           <>
             <NewChatButton onClick={() => setConfirmNew(true)} disabled={starting} />

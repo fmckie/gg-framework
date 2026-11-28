@@ -4,7 +4,7 @@
 // underneath; the profile opens its chat or its form, runs its schedule now or
 // turns its schedules back on.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   ArrowRightIcon,
   CheckIcon,
@@ -17,6 +17,7 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { MetalButton } from "../MetalButton";
+import { isPhone } from "../platform";
 import { ListSkeleton } from "../Skeleton";
 import { buildSummaryLineParts } from "../tool-format";
 import { useWindowFocused } from "../useWindowFocused";
@@ -24,6 +25,7 @@ import { AgentAvatar, BlobAvatar, BlobOutline } from "./BlobAvatar";
 import { JOB_EXAMPLES, whereItRunsShort } from "./BlobForm";
 import { describeSchedule, formatClock, formatWhen, plainSummary } from "./blobFormat";
 import { castFoot, castKind, castOf, castOffer, SHELVES_SHOWN, type CastActor } from "./castLayout";
+import { ClampText } from "./ClampText";
 import { AppsButton, KleioHead } from "./KleioChrome";
 import { LIVE_TOOL_ROWS, ToolCallRow } from "./LiveToolFeed";
 import {
@@ -206,13 +208,15 @@ export function CastList({
                 {working > 0 && (
                   <span className="cast-pill is-live">
                     <span className="cast-dot" aria-hidden="true" />
-                    {`${working} working`}
+                    {working}
+                    <span className="cast-pill-word"> working</span>
                   </span>
                 )}
                 {failed > 0 && (
                   <span className="cast-pill is-failed">
                     <WarningCircleIcon size={13} weight="bold" aria-hidden="true" />
-                    {`${failed} ${failed === 1 ? "needs" : "need"} you`}
+                    {failed}
+                    <span className="cast-pill-word">{` ${failed === 1 ? "needs" : "need"} you`}</span>
                   </span>
                 )}
               </span>
@@ -233,6 +237,18 @@ export function CastList({
             </>
           )
         }
+        phoneMenu={[
+          ...(some
+            ? [
+                {
+                  label: searching ? "Close search" : "Search specialists",
+                  onSelect: () => (searching ? closeSearch() : setSearching(true)),
+                },
+              ]
+            : []),
+          ...(onOpenApps ? [{ label: "Connect apps", onSelect: onOpenApps }] : []),
+          ...(some || blobs === null ? [{ label: "New specialist", onSelect: onCreate }] : []),
+        ]}
         actions={
           <>
             {some && (
@@ -495,6 +511,11 @@ function Profile({
   } | null>(null);
   const mine = act?.id === blob.id ? act : null;
   const busy = Boolean(mine?.busy);
+  // The phone leads with who it is and what to do; the rest is behind Details.
+  const phone = isPhone();
+  const [details, setDetails] = useState(false);
+  const detailsId = useId();
+  const secondary = !phone || details;
   const offer = castOffer(blob);
   const lead = offer?.kind === "resume" || Boolean(offer?.kind === "run" && offer.lead);
 
@@ -556,6 +577,45 @@ function Profile({
   const showCalls = kind === "working" && calls.length > 0;
   const lastRun = showCalls ? ended[0] : undefined;
 
+  const error = mine?.error && (
+    <p className="kleio-error cast-p-error" role="alert">
+      {mine.error}
+    </p>
+  );
+  const actions = (
+    <div className="cast-p-actions">
+      {offer?.kind === "resume" && (
+        <MetalButton
+          windowFocused={windowFocused}
+          className="btn btn-primary btn-sm"
+          disabled={busy}
+          onClick={() =>
+            void press(
+              () => Promise.all(offer.schedules.map((s) => setEnabled(blob.id, s.id, true))),
+              false,
+            )
+          }
+        >
+          {busy
+            ? "Turning on…"
+            : offer.schedules.length === 1
+              ? "Turn schedule on"
+              : "Turn schedules on"}
+        </MetalButton>
+      )}
+      {run && lead && (
+        <MetalButton windowFocused={windowFocused} className="btn btn-primary btn-sm" {...run} />
+      )}
+      {chat(!lead)}
+      {edit}
+      {run && !lead && <button type="button" className="btn btn-ghost btn-sm" {...run} />}
+      {mine?.started && (
+        <span className="cast-p-started" role="status">
+          Started. The result will show in Recent runs.
+        </span>
+      )}
+    </div>
+  );
   return (
     <section
       className="cast-profile"
@@ -564,7 +624,7 @@ function Profile({
     >
       <div className="cast-p-id">
         <div className="cast-p-head">
-          {shelves > 1 && <AgentAvatar agent={blob} size={36} />}
+          {(shelves > 1 || phone) && <AgentAvatar agent={blob} size={36} />}
           <h2>{blob.name}</h2>
         </div>
         <p className="cast-p-state">
@@ -583,8 +643,10 @@ function Profile({
           )}
           {since && <span>{`since ${since}`}</span>}
         </p>
-        <p className="cast-p-job">{blob.job}</p>
-        {model && (
+        <ClampText key={blob.id} className="cast-p-job">
+          {blob.job}
+        </ClampText>
+        {secondary && model && (
           <p className="cast-p-brain">
             {model.private ? (
               <LockSimpleIcon size={13} weight="bold" aria-hidden="true" />
@@ -596,114 +658,95 @@ function Profile({
         )}
       </div>
 
-      <div className="cast-p-col">
-        {showCalls ? (
-          <>
-            <h3 className="cast-label">Right now</h3>
-            <RightNow name={blob.name} calls={calls} {...(now ? { now } : {})} />
-          </>
-        ) : kind === "oncall" ? (
-          <>
-            <h3 className="cast-label">How to use it</h3>
-            <p className="cast-p-note">
-              Ask it anything about its job. This chat is shared with your phone.
-            </p>
-          </>
-        ) : (
-          <>
-            <h3 className="cast-label">Recent runs</h3>
-            {runs?.error ? (
-              <p className="cast-p-note">{runs.error}</p>
-            ) : !runs ? (
-              <p className="cast-p-note">Loading…</p>
-            ) : ended.length === 0 ? (
-              <p className="cast-p-note">Nothing has run yet.</p>
+      {phone && error}
+      {phone && actions}
+      {phone && (
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm cast-p-more"
+          aria-expanded={details}
+          aria-controls={`${detailsId} ${detailsId}-2`}
+          onClick={() => setDetails((d) => !d)}
+        >
+          {details ? "Hide details" : "Details"}
+        </button>
+      )}
+      {secondary && (
+        <>
+          <div className="cast-p-col" {...(phone ? { id: detailsId } : {})}>
+            {showCalls ? (
+              <>
+                <h3 className="cast-label">Right now</h3>
+                <RightNow name={blob.name} calls={calls} {...(now ? { now } : {})} />
+              </>
+            ) : kind === "oncall" ? (
+              <>
+                <h3 className="cast-label">How to use it</h3>
+                <p className="cast-p-note">
+                  Ask it anything about its job. This chat is shared with your phone.
+                </p>
+              </>
             ) : (
-              <ol className="cast-runs">
-                {ended.slice(0, RUNS_SHOWN).map((r) => (
-                  <li key={r.id} className={r.outcome === "error" ? "is-failed" : undefined}>
-                    <RunLine run={r} now={clock} />
+              <>
+                <h3 className="cast-label">Recent runs</h3>
+                {runs?.error ? (
+                  <p className="cast-p-note">{runs.error}</p>
+                ) : !runs ? (
+                  <p className="cast-p-note">Loading…</p>
+                ) : ended.length === 0 ? (
+                  <p className="cast-p-note">Nothing has run yet.</p>
+                ) : (
+                  <ol className="cast-runs">
+                    {ended.slice(0, RUNS_SHOWN).map((r) => (
+                      <li key={r.id} className={r.outcome === "error" ? "is-failed" : undefined}>
+                        <RunLine run={r} now={clock} />
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="cast-p-col" {...(phone ? { id: `${detailsId}-2` } : {})}>
+            <h3 className="cast-label">{blob.schedules.length === 1 ? "Schedule" : "Schedules"}</h3>
+            {blob.schedules.length === 0 ? (
+              <p className="cast-p-note">
+                No schedules. Mention timing in the job (“every weekday at 7:30”) or add one.
+              </p>
+            ) : (
+              <ul className="cast-scheds">
+                {blob.schedules.map((s) => (
+                  <li key={s.id}>
+                    <p className="cast-s-name">
+                      {s.label}
+                      {s.source === "auto" && <span className="cast-tag">Auto</span>}
+                    </p>
+                    <p className="cast-s-when">
+                      {describeSchedule(s)}
+                      {s.enabled
+                        ? s.nextRunAt
+                          ? ` · next ${formatWhen(s.nextRunAt, clock)}`
+                          : ""
+                        : " · off"}
+                    </p>
                   </li>
                 ))}
-              </ol>
+              </ul>
             )}
-          </>
-        )}
-      </div>
-
-      <div className="cast-p-col">
-        <h3 className="cast-label">{blob.schedules.length === 1 ? "Schedule" : "Schedules"}</h3>
-        {blob.schedules.length === 0 ? (
-          <p className="cast-p-note">
-            No schedules. Mention timing in the job (“every weekday at 7:30”) or add one.
-          </p>
-        ) : (
-          <ul className="cast-scheds">
-            {blob.schedules.map((s) => (
-              <li key={s.id}>
-                <p className="cast-s-name">
-                  {s.label}
-                  {s.source === "auto" && <span className="cast-tag">Auto</span>}
+            {lastRun && (
+              <>
+                <h3 className="cast-label">Last run</h3>
+                <p className="cast-s-last">
+                  <RunLine run={lastRun} now={clock} />
                 </p>
-                <p className="cast-s-when">
-                  {describeSchedule(s)}
-                  {s.enabled
-                    ? s.nextRunAt
-                      ? ` · next ${formatWhen(s.nextRunAt, clock)}`
-                      : ""
-                    : " · off"}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-        {lastRun && (
-          <>
-            <h3 className="cast-label">Last run</h3>
-            <p className="cast-s-last">
-              <RunLine run={lastRun} now={clock} />
-            </p>
-          </>
-        )}
-      </div>
-
-      {mine?.error && (
-        <p className="kleio-error cast-p-error" role="alert">
-          {mine.error}
-        </p>
+              </>
+            )}
+          </div>
+        </>
       )}
-      <div className="cast-p-actions">
-        {offer?.kind === "resume" && (
-          <MetalButton
-            windowFocused={windowFocused}
-            className="btn btn-primary btn-sm"
-            disabled={busy}
-            onClick={() =>
-              void press(
-                () => Promise.all(offer.schedules.map((s) => setEnabled(blob.id, s.id, true))),
-                false,
-              )
-            }
-          >
-            {busy
-              ? "Turning on…"
-              : offer.schedules.length === 1
-                ? "Turn schedule on"
-                : "Turn schedules on"}
-          </MetalButton>
-        )}
-        {run && lead && (
-          <MetalButton windowFocused={windowFocused} className="btn btn-primary btn-sm" {...run} />
-        )}
-        {chat(!lead)}
-        {edit}
-        {run && !lead && <button type="button" className="btn btn-ghost btn-sm" {...run} />}
-        {mine?.started && (
-          <span className="cast-p-started" role="status">
-            Started. The result will show in Recent runs.
-          </span>
-        )}
-      </div>
+      {!phone && error}
+      {!phone && actions}
     </section>
   );
 }

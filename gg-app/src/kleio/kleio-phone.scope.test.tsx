@@ -6,7 +6,7 @@
 // phone's width, touch and keyboard force is kleio-phone.css, which has to win
 // the cascade against the rules it fits: these work that out from the real
 // stylesheets (weight, order, !important) on the real session's markup.
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentState } from "../agent";
@@ -275,11 +275,133 @@ describe("on the iPhone, the Cast", () => {
     expect(fitted(".cast-who", "position")).toMatchObject({ value: "static" });
   });
 
-  it("keeps a place wide enough to press, on a shelf that scrolls sideways", () => {
-    expect(fitted(".cast-page", "--slot")?.value).toMatch(/^max\(84px, /);
+  it("sizes every place to its picture, in every tier, and the row to what rises over it", () => {
+    for (const tier of ["solo", "one", "two", "crowd"]) {
+      document.querySelector(".cast-page")?.setAttribute("data-tier", tier);
+      expect(fitted(".cast-page", "--size"), tier).toMatchObject({ value: "56px" });
+      expect(fitted(".cast-page", "--slot"), tier).toMatchObject({ value: "76px" });
+      expect(fitted(".cast-page", "--row-h")?.value, tier).toBe(
+        "calc(var(--size) + var(--floor) + 36px)",
+      );
+    }
     expect(fitted(".cast-page", "--inset")).toMatchObject({ value: "16px" });
-    expect(fitted(".cast", "overflow-x")).toMatchObject({ value: "auto" });
     expect(fitted(".cast-row", "width")).toMatchObject({ value: "max-content" });
+  });
+
+  it("scrolls the shelf sideways only, each place settling at the edge, nothing bouncing", () => {
+    document.body.innerHTML = `
+      <div class="cast-page" data-tier="crowd">
+        <div class="cast" data-scroll><div class="cast-row"><button class="cast-actor"></button></div></div>
+        <p class="cast-more">4 more below · scroll</p>
+      </div>`;
+    expect(fitted(".cast", "overflow-x")).toMatchObject({ value: "auto" });
+    expect(fitted(".cast", "overflow-y")).toMatchObject({ value: "hidden" });
+    expect(fitted(".cast", "max-height")).toMatchObject({ value: "none" });
+    expect(fitted(".cast", "scroll-snap-type")).toMatchObject({ value: "x mandatory" });
+    expect(fitted(".cast", "scroll-padding-inline")).toMatchObject({ value: "var(--inset)" });
+    expect(fitted(".cast", "overscroll-behavior-x")).toMatchObject({ value: "none" });
+    // A swipe up or down still moves the page around it.
+    expect(fitted(".cast", "overscroll-behavior-y")).toMatchObject({ value: "auto" });
+    expect(fitted(".cast", "mask-image")).toMatchObject({ value: "none" });
+    expect(fitted(".cast-actor", "scroll-snap-align")).toMatchObject({ value: "start" });
+    expect(fitted(".cast-actor", "height")?.value).toBe("calc(var(--size) + var(--floor) + 12px)");
+    expect(fitted(".cast-more", "display")).toMatchObject({ value: "none" });
+  });
+
+  it("wraps a long word or link in the spotlight, so the page stays the screen's width", () => {
+    document.body.innerHTML = `
+      <div class="cast-page" data-tier="one"><section class="cast-profile"><div class="cast-p-id">
+        <p class="cast-p-job">https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789</p>
+      </div></section></div>`;
+    expect(fitted(".cast-profile", "overflow-wrap")).toMatchObject({ value: "anywhere" });
+  });
+
+  it("leads the spotlight with who it is and its buttons, Details at their end", () => {
+    document.body.innerHTML = `
+      <div class="cast-page" data-tier="crowd"><section class="cast-profile">
+        <div class="cast-p-id"><div class="cast-p-head"><h2>Email</h2></div>
+          <p class="cast-p-state"></p>
+          <p class="cast-p-job clamp-text"><span class="clamp-body">Every weekday…</span></p></div>
+        <div class="cast-p-actions"><button class="btn btn-primary btn-sm">Open chat</button></div>
+        <button class="btn btn-ghost btn-sm cast-p-more" aria-expanded="false">Details</button>
+      </section></div>`;
+    expect(fitted(".cast-p-id", "display")).toMatchObject({ value: "flex" });
+    expect(fitted(".cast-profile", "grid-template-columns")).toMatchObject({
+      value: "minmax(0, 1fr) auto",
+    });
+    expect(fitted(".cast-p-id", "grid-column")).toMatchObject({ value: "1 / -1" });
+    expect(fitted(".cast-p-actions", "grid-column")).toMatchObject({ value: "1" });
+    expect(fitted(".cast-p-more", "grid-column")).toMatchObject({ value: "2" });
+    expect(fitted(".cast-p-more", "min-height")).toMatchObject({ value: "44px" });
+    expect(fitted(".cast-p-actions", "border-top")).toMatchObject({ value: "0" });
+    // The job is one line until tapped.
+    expect(fitted(".cast-p-job", "display")).toMatchObject({ value: "block" });
+    expect(fitted(".cast-p-job > .clamp-body", "-webkit-line-clamp")).toMatchObject({
+      value: "1",
+    });
+  });
+
+  it("keeps a header with a menu to one row, its pills their numbers", () => {
+    document.body.innerHTML = `
+      <div class="picker kleio-screen has-dock">
+        <div class="kleio-page">
+          <div class="picker-head kleio-head has-menu">
+            <button class="btn btn-ghost btn-icon">Back</button>
+            <h1 class="picker-title">Specialists</h1>
+            <span class="cast-pills"><span class="cast-pill">3<span class="cast-pill-word"> working</span></span></span>
+            <input class="picker-search" />
+            <span class="picker-head-actions"><span class="kleio-menu-wrap">
+              <button class="btn btn-ghost btn-icon kleio-menu-btn"></button>
+              <div class="kleio-menu" role="menu"><button role="menuitem">Connect apps</button></div>
+            </span></span>
+          </div>
+          <div class="cast-page"></div>
+        </div>
+        <div class="settings-tab-dock"><div class="settings-tabs"><button class="settings-tab"></button></div></div>
+      </div>`;
+    expect(fitted(".kleio-head > .picker-title", "flex")).toMatchObject({ value: "1 1 0" });
+    expect(fitted(".kleio-head > .cast-pills", "flex")).toMatchObject({ value: "none" });
+    expect(fitted(".cast-pill-word", "position")).toMatchObject({ value: "absolute" });
+    expect(fitted(".kleio-head > .picker-search", "flex")).toMatchObject({ value: "1 1 100%" });
+    expect(fitted(".kleio-menu-btn", "width")).toMatchObject({ value: "44px" });
+    expect(fitted(".kleio-menu-btn", "height")).toMatchObject({ value: "44px" });
+    expect(fitted(".kleio-menu > button", "min-height")).toMatchObject({ value: "44px" });
+    expect(fitted(".kleio-menu", "position")).toMatchObject({ value: "absolute" });
+    // The Specialists and Groups switch is in the flow, and the list's spacer for it goes.
+    expect(fitted(".kleio-screen > .settings-tab-dock", "position")).toMatchObject({
+      value: "static",
+    });
+    expect(fitted(".settings-tab-dock .settings-tab", "height")).toMatchObject({ value: "44px" });
+    const spacer = RULES.filter(
+      (rule) =>
+        rule.selector.endsWith(".kleio-screen.has-dock .cast-page::after") &&
+        rule.declarations.has("content"),
+    );
+    const phone = spacer.find((rule) => rule.sheet === "./kleio-phone.css");
+    expect(phone?.declarations.get("content")?.value).toBe("none");
+    for (const other of spacer) expect(phone!.weight).toBeGreaterThanOrEqual(other.weight);
+  });
+
+  it("draws a room's members as one row of faces, and its chips as one row", () => {
+    document.body.innerHTML = `
+      <div class="cast-room">
+        <div class="cast-room-stage is-crowd"><div class="cast-shelf"></div>
+          <div class="cast-room-members">
+            <button class="cast-actor cast-member is-live"><span class="cast-figure"></span>
+              <span class="cast-name">Quill</span><span class="cast-state">Replying…</span></button>
+          </div>
+        </div>
+        <div class="cast-composer"><div class="cast-mentions"><button>@Quill</button></div></div>
+      </div>`;
+    expect(fitted(".cast-room-stage", "height")).toMatchObject({ value: "56px" });
+    for (const gone of [".cast-shelf", ".cast-name", ".cast-state"])
+      expect(fitted(gone, "display"), gone).toMatchObject({ value: "none" });
+    expect(fitted(".cast-member", "width")).toMatchObject({ value: "44px" });
+    expect(fitted(".cast-member", "height")).toMatchObject({ value: "44px" });
+    expect(fitted(".cast-member .cast-figure", "box-shadow")?.value).toContain("--primary-hi");
+    expect(fitted(".cast-mentions", "flex-wrap")).toMatchObject({ value: "nowrap" });
+    expect(fitted(".cast-mentions", "overflow-x")).toMatchObject({ value: "auto" });
+    expect(fitted(".cast-mentions button", "height")).toMatchObject({ value: "44px" });
   });
 
   it("gives the room's thread and message box the screen's width", () => {
@@ -369,13 +491,101 @@ describe("on the iPhone, a Code session", () => {
 
   it("makes each control in the header 36px tall, for a thumb", () => {
     const controls = [...app.querySelectorAll(".chat-head :is(.btn, .nav-toggle, .kleio-badge)")];
-    expect(controls.length).toBeGreaterThan(4);
+    expect(controls.length).toBeGreaterThan(2);
     for (const control of controls) {
       expect(phoneStyle(control, "min-height")).toMatchObject({
         value: "36px",
         sheet: "./kleio-phone.css",
       });
     }
+  });
+
+  it("drops the title line of counts, which the Branch panel holds, and keeps a Chat's", () => {
+    const title = app.querySelector(".chat-head-title");
+    if (!title) throw new Error("no title line");
+    expect(phoneStyle(title, "display")).toMatchObject({
+      value: "none",
+      sheet: "./kleio-phone.css",
+    });
+    const ci = document.createElement("span");
+    ci.className = "chat-head-ci";
+    title.append(ci);
+    expect(phoneStyle(title, "display")?.value).not.toBe("none");
+    title.classList.add("chat-head-identity");
+    ci.remove();
+    expect(phoneStyle(title, "display")?.value).not.toBe("none");
+  });
+
+  it("keeps Back, Autopilot and New in the tools row, and the rest in More", async () => {
+    const nav = app.querySelector(".chat-head-nav");
+    if (!nav) throw new Error("no tools row");
+    const names = [...nav.querySelectorAll("button, label")].map(
+      (el) => el.getAttribute("aria-label") ?? el.textContent?.trim(),
+    );
+    expect(names).toEqual(expect.arrayContaining(["Back to this project's sessions", "New"]));
+    expect(nav.querySelector(".autopilot-toggle")).not.toBeNull();
+    for (const gone of ["Notes", "Tasks", "Checklist", "Help"])
+      expect(
+        names.some((name) => name?.startsWith(gone)),
+        gone,
+      ).toBe(false);
+    screen.getByRole("button", { name: /^More/ }).click();
+    const more = await screen.findByRole("region", { name: "More" });
+    expect(
+      [...more.querySelectorAll(".priority-action")].map((action) => action.textContent),
+    ).toEqual(["Notes", "Tasks", "Checklist", "Help"]);
+  });
+
+  it("presses each header control on 44px: 36 drawn and 4 more each way", () => {
+    const tap = RULES.find(
+      (rule) =>
+        rule.sheet === "./kleio-phone.css" &&
+        rule.selector ===
+          'html.platform-ios .app.app-session .chat-head :is(button, [role="button"])::after',
+    );
+    expect(tap?.declarations.get("inset")?.value).toBe("-5px");
+    expect(app.querySelector(".chat-head .nav-toggle")?.matches(".chat-head button")).toBe(true);
+  });
+
+  it("hides the idle line only for its quip, and joins the composer box back up", () => {
+    const line = app.querySelector(".task-activity");
+    if (!line) throw new Error("no activity line");
+    expect(line.getAttribute("data-phase")).toBe("idle");
+    expect(line.hasAttribute("data-quip")).toBe(true);
+    expect(phoneStyle(line, "display")).toMatchObject({ value: "none" });
+    const composer = app.querySelector(":scope > .inputwrap");
+    if (!composer) throw new Error("no composer");
+    expect(phoneStyle(composer, "border-radius")).toMatchObject({ value: "12px" });
+    line.removeAttribute("data-quip");
+    expect(phoneStyle(line, "display")?.value).not.toBe("none");
+    expect(phoneStyle(composer, "border-radius")?.value).not.toBe("12px");
+  });
+
+  it("puts the status row on one line: no words, no Helper, the model cut short", () => {
+    const right = app.querySelector(".footer > .footer-right");
+    if (!right) throw new Error("no status row");
+    expect(phoneStyle(right, "flex-wrap")).toMatchObject({
+      value: "nowrap",
+      sheet: "./kleio-phone.css",
+    });
+    for (const word of app.querySelectorAll(".footer :is(.ctx-word, .thinking-word)"))
+      expect(phoneStyle(word, "position")).toMatchObject({ value: "absolute" });
+    expect(app.querySelectorAll(".footer .model-anchor")).toHaveLength(1);
+    const model = app.querySelector(".footer .model-trigger");
+    if (model) expect(phoneStyle(model, "text-overflow")).toMatchObject({ value: "ellipsis" });
+  });
+
+  it("hides the activity line's Stop only while the composer's red Stop shows", () => {
+    const right = app.querySelector(".task-activity .statusrow-right");
+    const send = app.querySelector(".inputwrap .icon-circle-primary");
+    if (!right || !send) throw new Error("no activity row or send button");
+    const stop = document.createElement("button");
+    stop.className = "cancel";
+    right.append(stop);
+    expect(send.getAttribute("data-action")).toBe("send");
+    expect(phoneStyle(stop, "display")?.value).not.toBe("none");
+    send.setAttribute("data-action", "stop");
+    expect(phoneStyle(stop, "display")).toMatchObject({ value: "none" });
   });
 
   it("shows the rank in the tools row, which the phone used to hide", () => {
@@ -404,7 +614,9 @@ describe("on the iPhone, Kleio's Home", () => {
       .join("");
     document.body.innerHTML = `
       <div class="home kleio-home">
+        <div class="home-version-row"><button class="kleio-status is-up">Connected to mac-mini-1</button></div>
         <div class="home-actions">${plates}<button class="kleio-plate home-brief">Voice agent</button></div>
+        <button class="home-settings" aria-label="Settings"></button>
       </div>`;
   });
   afterEach(() => {
@@ -429,6 +641,18 @@ describe("on the iPhone, Kleio's Home", () => {
       });
   });
 
+  it("draws Settings' gear 44px square and the host's pill 44px tall, for a thumb", () => {
+    const gear = document.querySelector(".home-settings");
+    const pill = document.querySelector(".kleio-status");
+    if (!gear || !pill) throw new Error("no gear or pill");
+    expect(phoneStyle(gear, "width")).toMatchObject({ value: "44px", sheet: "./kleio-phone.css" });
+    expect(phoneStyle(gear, "height")).toMatchObject({ value: "44px", sheet: "./kleio-phone.css" });
+    const tall = phoneStyle(pill, "min-height");
+    expect(tall).toMatchObject({ value: "44px", sheet: "./kleio-phone.css" });
+    // Its own 28px height gives way to the minimum.
+    expect(phoneStyle(pill, "height")?.value).toBe("28px");
+  });
+
   it("leaves a plate its full height: no rule left from the pills squeezes it", () => {
     const brief = document.querySelector(".home-brief");
     if (!brief) throw new Error("no .home-brief");
@@ -443,7 +667,7 @@ describe("on the iPhone, a goal's bar", () => {
     document.documentElement.classList.remove("platform-ios");
   });
 
-  it("is the desktop's bar, with every control and the settings dialog's Close 44px for a thumb", async () => {
+  it("is one row: the views and ⋯ drawn 36px and pressed on 44, its menu's entries 44", async () => {
     const { GoalPanel } = await import("../placeholder/GoalPanel");
     render(
       <div className="app app-session">
@@ -451,6 +675,7 @@ describe("on the iPhone, a goal's bar", () => {
           goal={{ id: "g", name: "API latency", needsKickoff: false, phase: "active" }}
           view="workers"
           onViewChange={() => {}}
+          running
           models={[]}
           onSelectWorkerModel={() => {}}
           onPauseChange={() => {}}
@@ -458,22 +683,416 @@ describe("on the iPhone, a goal's bar", () => {
       </div>,
     );
     const bar = screen.getByRole("group", { name: "Goal" });
-    expect(bar.className).toBe("goal-bar");
-    const controls = [
-      ...bar.querySelectorAll(".goal-bar-views > button, .goal-bar-actions > button"),
-      screen.getByRole("combobox"),
-    ];
-    expect(controls).toHaveLength(5);
-    for (const control of controls)
+    expect(phoneStyle(bar, "grid-template-columns")).toMatchObject({
+      value: "minmax(0, 1fr) auto auto",
+    });
+    expect(phoneStyle(bar, "padding")).toMatchObject({ value: "6px 12px 6px 16px" });
+    const name = bar.querySelector(".goal-bar-name");
+    expect(name && phoneStyle(name, "white-space")).toMatchObject({ value: "nowrap" });
+    const more = screen.getByRole("button", { name: "Goal actions" });
+    for (const control of [...bar.querySelectorAll(".goal-bar-views > button"), more])
       expect(phoneStyle(control, "height"), control.textContent ?? "").toMatchObject({
-        value: "44px",
+        value: "36px",
         sheet: "./kleio-phone.css",
       });
+    const reach = (selector: string): string | undefined =>
+      RULES.find((rule) => rule.selector === selector)?.declarations.get("inset")?.value;
+    expect(
+      reach("html.platform-ios .app.app-session > .goal-panel .goal-bar-views > button::after"),
+    ).toBe("-4px 0");
+    expect(
+      reach("html.platform-ios .app.app-session > .goal-panel .goal-bar .kleio-menu-btn::after"),
+    ).toBe("-5px");
+    // Its menu opens over the courtyard after it.
+    const panel = bar.parentElement!;
+    expect(phoneStyle(panel, "z-index")).toMatchObject({ value: "5" });
 
-    screen.getByRole("button", { name: "Goal settings" }).click();
+    fireEvent.click(more);
+    for (const name of ["Pause the goal", "Goal settings"])
+      expect(phoneStyle(screen.getByRole("button", { name }), "min-height"), name).toMatchObject({
+        value: "44px",
+      });
+    const model = screen.getByRole("combobox");
+    expect(model.closest(".kleio-menu .goal-menu-model")).not.toBeNull();
+    expect(phoneStyle(model, "height")).toMatchObject({ value: "44px" });
+    expect(phoneStyle(model, "width")).toMatchObject({ value: "100%" });
+    expect(phoneStyle(model, "font-size")).toMatchObject({ value: "max(16px, 1em)" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Goal settings" }));
     const close = await screen.findByRole("button", { name: "Close" });
     expect(close.closest(".goal-form-modal")).not.toBeNull();
     expect(phoneStyle(close, "height")).toMatchObject({ value: "44px" });
     expect(phoneStyle(close, "width")).toMatchObject({ value: "44px" });
+  });
+
+  it("drops the Workers' status row, and the gods' lane from the goal's Chat only", () => {
+    document.body.innerHTML = `
+      <div class="app app-session">
+        <div class="goal-panel"><div class="placeholder-bar goal-status"></div></div>
+        <div class="liveregion"><div class="oly-lane"></div></div>
+      </div>
+      <div class="app app-session">
+        <div class="liveregion"><div class="oly-lane"></div></div>
+      </div>`;
+    const status = document.querySelector(".goal-status");
+    const [goalLane, lane] = document.querySelectorAll(".oly-lane");
+    if (!status || !goalLane || !lane) throw new Error("no goal markup");
+    expect(phoneStyle(status, "display")).toMatchObject({ value: "none" });
+    expect(phoneStyle(goalLane, "display")).toMatchObject({ value: "none" });
+    expect(phoneStyle(lane, "display")).toBeNull();
+    expect(phoneStyle(lane, "zoom")).toMatchObject({ value: "0.72" });
+  });
+
+  it("scrolls the finish card with the Workers, at a thumb's 44px", () => {
+    document.body.innerHTML = `
+      <div class="app app-session"><section class="goal-workers"><div class="placeholder-scroll">
+        <section class="goal-finish" data-outcome="done"><div>
+          <span class="goal-finish-actions"><button>Close</button></span>
+        </div></section>
+      </div></section></div>`;
+    const card = document.querySelector(".goal-finish");
+    const close = document.querySelector(".goal-finish-actions > button");
+    if (!card || !close) throw new Error("no finish card");
+    expect(phoneStyle(card, "display")).toMatchObject({ value: "block" });
+    expect(phoneStyle(card, "box-shadow")?.value).toContain("var(--kleio-done)");
+    expect(phoneStyle(close, "height")).toMatchObject({ value: "44px" });
+  });
+});
+
+describe("on the iPhone, Settings", () => {
+  beforeEach(() => {
+    document.documentElement.classList.add("platform-ios");
+    const tabs = Array.from(
+      { length: 9 },
+      (_, i) => `<button class="settings-tab${i === 0 ? " is-active" : ""}" role="tab"></button>`,
+    ).join("");
+    document.body.innerHTML = `
+      <div class="app">
+        <div class="picker settings-screen">
+          <div class="picker-head"><button class="btn btn-ghost btn-icon" aria-label="Back"></button></div>
+          <div class="settings-scroll"><div class="settings-page">
+            <div class="gn-page"></div><div class="ov-page"></div>
+          </div></div>
+          <div class="settings-tab-dock"><div class="settings-tabs" role="tablist">${tabs}</div></div>
+        </div>
+      </div>`;
+  });
+  afterEach(() => {
+    document.body.innerHTML = "";
+    document.documentElement.classList.remove("platform-ios");
+  });
+
+  const style = (selector: string, property: string): Winner | null => {
+    const el = document.querySelector(selector);
+    if (!el) throw new Error(`no ${selector}`);
+    return phoneStyle(el, property);
+  };
+
+  it("makes the header Back's height, Back pressed on 44px", () => {
+    expect(style(".settings-screen > .picker-head", "padding-block")).toMatchObject({
+      value: "0",
+    });
+    expect(style(".picker-head > .btn-icon", "height")).toMatchObject({ value: "44px" });
+    expect(style(".picker-head > .btn-icon", "width")).toMatchObject({ value: "44px" });
+  });
+
+  it("gives each of the nine tabs 44px square, in a tray that scrolls sideways", () => {
+    expect(style(".settings-tab-dock", "padding")).toMatchObject({ value: "0 4px" });
+    expect(style(".settings-tabs", "overflow-x")).toMatchObject({ value: "auto" });
+    const tabs = [...document.querySelectorAll(".settings-tab")];
+    expect(tabs).toHaveLength(9);
+    for (const tab of tabs) {
+      expect(phoneStyle(tab, "width")).toMatchObject({ value: "44px" });
+      expect(phoneStyle(tab, "height")).toMatchObject({ value: "44px" });
+      expect(phoneStyle(tab, "flex")).toMatchObject({ value: "0 0 44px" });
+    }
+  });
+
+  it("starts a page's words 24px under the header, not 48 or 54", () => {
+    expect(style(".settings-page", "padding-top")).toMatchObject({ value: "8px" });
+    expect(style(".gn-page", "padding-top")).toMatchObject({ value: "0" });
+    expect(style(".ov-page", "padding-top")).toMatchObject({ value: "16px" });
+  });
+});
+
+describe("on the iPhone, a dialog", () => {
+  beforeEach(() => document.documentElement.classList.add("platform-ios"));
+  afterEach(() => {
+    document.body.innerHTML = "";
+    document.documentElement.classList.remove("platform-ios");
+  });
+
+  const style = (selector: string, property: string): Winner | null => {
+    const el = document.querySelector(selector);
+    if (!el) throw new Error(`no ${selector}`);
+    return phoneStyle(el, property);
+  };
+  const dialog = (className: string, body: string): void => {
+    document.body.innerHTML = `
+      <div class="modal-backdrop"><div class="modal ${className}" role="dialog">
+        <div class="modal-head"><h2 class="modal-title">Title</h2>
+          <button class="modal-close" aria-label="Close">×</button></div>
+        ${body}
+      </div></div>`;
+  };
+
+  it("heads a dialog with one 44px row, its × a 44px square, its buttons 12px under", () => {
+    dialog(
+      "",
+      '<p>Start fresh?</p><div class="modal-actions"><button class="modal-btn">Cancel</button></div>',
+    );
+    expect(style(".modal", "padding-top")).toMatchObject({ value: "12px" });
+    expect(style(".modal-head", "min-height")).toMatchObject({ value: "44px" });
+    expect(style(".modal-head", "margin-bottom")).toMatchObject({ value: "0" });
+    expect(style(".modal-close", "width")).toMatchObject({ value: "44px" });
+    expect(style(".modal-close", "height")).toMatchObject({ value: "44px" });
+    expect(style(".modal-actions", "margin-top")).toMatchObject({ value: "12px" });
+    expect(style(".modal-actions", "display")?.value).not.toBe("none");
+  });
+
+  it("drops a footer whose one button is the ×, and keeps one with more", () => {
+    dialog(
+      "",
+      '<div class="modal-actions"><button class="modal-btn modal-btn-close">Close</button></div>',
+    );
+    expect(style(".modal-actions", "display")).toMatchObject({ value: "none" });
+    dialog(
+      "",
+      `<div class="modal-actions"><button class="modal-btn">Disconnect</button>
+        <button class="modal-btn modal-btn-close">Close</button></div>`,
+    );
+    expect(style(".modal-actions", "display")?.value).not.toBe("none");
+  });
+
+  it("opens Notes as a sheet the screen's height, its page filling it", () => {
+    dialog("notes-modal", '<textarea class="notes-input"></textarea>');
+    expect(style(".modal", "height")?.value).toMatch(/^calc\(100dvh /);
+    expect(style(".modal", "flex-direction")).toMatchObject({ value: "column" });
+    expect(style(".notes-input", "flex")).toMatchObject({ value: "1 1 auto" });
+    expect(style(".notes-input", "height")).toMatchObject({ value: "auto" });
+  });
+
+  it("makes plan review's title a 44px row, and the panels' extras go", () => {
+    document.body.innerHTML = `
+      <div class="app app-session">
+        <div class="plan-review"><div class="plan-review-banner"><div class="plan-logo"></div></div></div>
+        <section class="model-panel"><div class="model-summary"></div><div class="model-helper"></div></section>
+        <section class="composer-panel more-panel"><header class="panel-header">
+          <span class="panel-esc">esc</span><button class="panel-close"></button></header></section>
+      </div>`;
+    expect(style(".plan-review-banner", "padding")).toMatchObject({
+      value: "var(--safe-top) 16px 0",
+    });
+    expect(style(".plan-logo", "padding")).toMatchObject({ value: "12px 0" });
+    expect(style(".model-summary", "display")).toMatchObject({ value: "none" });
+    expect(style(".model-helper", "min-height")).toMatchObject({ value: "44px" });
+    expect(style(".panel-esc", "display")).toMatchObject({ value: "none" });
+    expect(style(".panel-close", "margin-left")).toMatchObject({ value: "auto" });
+  });
+});
+
+describe("on the iPhone, a list's heading", () => {
+  beforeEach(() => document.documentElement.classList.add("platform-ios"));
+  afterEach(() => {
+    document.body.innerHTML = "";
+    document.documentElement.classList.remove("platform-ios");
+  });
+
+  const browser = (body: string, back = true): void => {
+    document.body.innerHTML = `
+      <div class="picker chat-browser">
+        <div class="picker-head">${back ? '<button class="btn btn-ghost btn-icon" aria-label="Back"></button>' : ""}</div>
+        <div class="chat-browser-heading">
+          <h1 class="chat-browser-title">Chats</h1>
+          <div class="chat-browser-controls">
+            <label class="chat-browser-search">Search chats<input type="search" /></label>
+            <button class="chat-browser-new">+ New chat</button>
+          </div>
+        </div>
+        <div class="picker-list">${body}</div>
+      </div>`;
+  };
+  const style = (selector: string, property: string): Winner | null => {
+    const el = document.querySelector(selector);
+    if (!el) throw new Error(`no ${selector}`);
+    return phoneStyle(el, property);
+  };
+
+  it("puts Back on the title's line, and the title clear of it", () => {
+    browser("<ul></ul>");
+    expect(style(".picker-head", "position")).toMatchObject({ value: "absolute" });
+    expect(style(".chat-browser-title", "padding-left")).toMatchObject({ value: "44px" });
+    expect(style(".chat-browser-title", "min-height")).toMatchObject({ value: "44px" });
+    browser("<ul></ul>", false);
+    expect(style(".chat-browser-title", "padding-left")).toBeNull();
+  });
+
+  it("sets New beside the search, whose label is its unseen name", () => {
+    browser("<ul></ul>");
+    expect(style(".chat-browser-controls > .chat-browser-new", "flex")).toMatchObject({
+      value: "none",
+    });
+    expect(style(".chat-browser-search", "flex")).toMatchObject({ value: "1 1 auto" });
+    expect(style(".chat-browser-search", "font-size")).toMatchObject({ value: "0" });
+    const input = document.querySelector("input");
+    expect(input?.labels?.[0]?.textContent).toBe("Search chats");
+    expect(phoneStyle(input!, "font-size")).toMatchObject({ value: "max(16px, 1em)" });
+    expect(style(".chat-browser-controls", "display")?.value).not.toBe("none");
+  });
+
+  it("hides the heading's search and New while the list's own New is all there is", () => {
+    browser(
+      '<div class="picker-empty"><span>None yet.</span><button class="btn">New</button></div>',
+    );
+    expect(style(".chat-browser-controls", "display")).toMatchObject({ value: "none" });
+    // An error has no New of its own: the heading's stays.
+    browser('<div class="picker-empty">Could not load.</div>');
+    expect(style(".chat-browser-controls", "display")?.value).not.toBe("none");
+    browser('<div class="goal-browser-empty" role="alert"><button>Try again</button></div>');
+    expect(style(".chat-browser-controls", "display")?.value).not.toBe("none");
+    browser('<div class="goal-browser-empty"><button>+ New goal</button></div>');
+    expect(style(".chat-browser-controls", "display")).toMatchObject({ value: "none" });
+  });
+
+  const projects = (body: string, search = true): void => {
+    document.body.innerHTML = `
+      <div class="picker project-picker">
+        <div class="picker-head">
+          <button class="btn btn-ghost btn-icon" aria-label="Back"></button>
+          <span class="picker-title">Choose a project</span>
+          <span class="badge">32</span>
+          ${search ? '<input class="picker-search" aria-label="Search projects" />' : ""}
+          <span class="picker-head-actions">
+            <button class="btn btn-ghost btn-sm">Open existing</button>
+            <button class="btn btn-primary btn-sm">+ New project</button>
+          </span>
+        </div>
+        <div class="picker-list">${body}</div>
+      </div>`;
+  };
+
+  it("sets + New project on Projects' title line, and Open existing beside the search", () => {
+    projects("");
+    const head = ".project-picker > .picker-head";
+    expect(style(`${head} > .picker-head-actions`, "display")).toMatchObject({
+      value: "contents",
+    });
+    expect(style(`${head} .btn-primary`, "order")).toMatchObject({ value: "1" });
+    expect(style(`${head} > .picker-search`, "order")).toMatchObject({ value: "3" });
+    expect(style(`${head} .btn-ghost:not(.btn-icon)`, "order")).toMatchObject({ value: "4" });
+    expect(style(`${head} > .picker-title`, "text-overflow")).toMatchObject({ value: "ellipsis" });
+    const end = RULES.find(
+      (rule) =>
+        rule.selector ===
+        "html.platform-ios .project-picker > .picker-head:has(> .picker-search)::after",
+    );
+    expect(end?.declarations.get("flex-basis")?.value).toBe("100%");
+    expect(end?.declarations.get("order")?.value).toBe("2");
+  });
+
+  it("hides Projects' heading buttons while the empty list holds its own, and keeps Back", () => {
+    projects(
+      '<div class="picker-empty"><button class="btn btn-ghost">Open existing</button></div>',
+      false,
+    );
+    for (const button of document.querySelectorAll(".picker-head-actions > .btn"))
+      expect(phoneStyle(button, "display"), button.textContent ?? "").toMatchObject({
+        value: "none",
+      });
+    expect(style(".picker-head > .btn-icon", "display")?.value).not.toBe("none");
+    projects('<div class="picker-empty">No projects yet.</div>', false);
+    expect(style(".picker-head-actions > .btn-primary", "display")?.value).not.toBe("none");
+  });
+});
+
+describe("on the iPhone, a description", () => {
+  beforeEach(() => document.documentElement.classList.add("platform-ios"));
+  afterEach(() => {
+    document.body.innerHTML = "";
+    document.documentElement.classList.remove("platform-ios");
+  });
+  const style = (selector: string, property: string): Winner | null => {
+    const el = document.querySelector(selector);
+    if (!el) throw new Error(`no ${selector}`);
+    return phoneStyle(el, property);
+  };
+
+  it("is two lines with an ellipsis until tapped, then whole, and wraps long words", () => {
+    document.body.innerHTML = `
+      <div class="kleio-chat-intro">
+        <p class="kleio-chat-intro-job clamp-text" role="button" aria-expanded="false">
+          <span class="clamp-body">Every weekday…</span></p></div>
+      <div class="kleio-panel"><p class="kleio-job-text clamp-text" data-open="" role="button">
+        <span class="clamp-body">Every weekday…</span></p></div>`;
+    const shut = ".kleio-chat-intro-job > .clamp-body";
+    expect(style(shut, "display")).toMatchObject({ value: "-webkit-box" });
+    expect(style(shut, "-webkit-line-clamp")).toMatchObject({ value: "2" });
+    expect(style(shut, "overflow")).toMatchObject({ value: "hidden" });
+    expect(style(".kleio-job-text > .clamp-body", "display")).toMatchObject({ value: "block" });
+    expect(style(".kleio-job-text > .clamp-body", "-webkit-line-clamp")).toBeNull();
+    for (const selector of [".kleio-chat-intro", ".kleio-job-text", ".kleio-chat-intro-job"])
+      expect(style(selector, "overflow-wrap"), selector).toMatchObject({ value: "anywhere" });
+  });
+
+  it("is pressed on 44px however few its lines, without growing", () => {
+    document.body.innerHTML = `
+      <p class="cast-p-job clamp-text" role="button"><span class="clamp-body">One line</span></p>`;
+    expect(style(".clamp-text", "min-height")).toMatchObject({ value: "0" });
+    expect(style(".clamp-text", "position")).toMatchObject({ value: "relative" });
+    const reach = RULES.find(
+      (rule) => rule.selector === 'html.platform-ios .clamp-text[role="button"]::before',
+    );
+    expect(reach?.declarations.get("inset")?.value).toBe("calc(min(0px, (100% - 44px) / 2)) 0");
+  });
+});
+
+describe("on the iPhone, a session's foot", () => {
+  beforeEach(() => document.documentElement.classList.add("platform-ios"));
+  afterEach(() => {
+    document.body.innerHTML = "";
+    document.documentElement.classList.remove("platform-ios", "bottom-covered");
+  });
+  const style = (selector: string, property: string): Winner | null => {
+    const el = document.querySelector(selector);
+    if (!el) throw new Error(`no ${selector}`);
+    return phoneStyle(el, property);
+  };
+
+  it("puts the status row above the activity line, so the composer sits on the home indicator", () => {
+    document.body.innerHTML = `
+      <div class="app app-session">
+        <div class="transcript-frame"></div>
+        <div class="liveregion"><div class="task-activity"></div></div>
+        <div class="inputwrap"></div>
+        <div class="footer"><div class="footer-right"></div></div>
+        <div class="sr-only"></div>
+      </div>`;
+    expect(style(".transcript-frame", "order")).toBeNull();
+    expect(style(".footer", "order")).toMatchObject({ value: "0" });
+    for (const selector of [".liveregion", ".inputwrap", ".sr-only"])
+      expect(style(selector, "order"), selector).toMatchObject({ value: "1" });
+    // The page's own padding is the home indicator's gap, and nothing under it.
+    expect(style(".app", "padding-bottom")).toMatchObject({ value: "var(--safe-bottom)" });
+    expect(style(".inputwrap", "margin-bottom")).toBeNull();
+    document.documentElement.classList.add("bottom-covered");
+    expect(style(".app", "padding-bottom")).toMatchObject({ value: "6px" });
+  });
+
+  it("fades a new chat's rain into the session's colour, and sets the words on a halo", () => {
+    document.body.innerHTML = `
+      <div class="app app-session"><div class="wake-screen">
+        <canvas class="wake-rain"></canvas>
+        <div class="wake-text"><span class="wake-line">What’s on your mind?</span></div>
+        <p class="wake-sub">A new conversation in this project.</p>
+      </div></div>`;
+    // The canvas reads its trail wash from <html>: the session's own rgb(22 18 19).
+    expect(phoneStyle(document.documentElement, "--wake-fade")).toMatchObject({
+      value: "rgb(22 18 19 / 0.18)",
+      sheet: "./kleio-phone.css",
+    });
+    expect(style(".wake-rain", "opacity")).toMatchObject({ value: "0.6" });
+    expect(style(".wake-text", "color")).toMatchObject({ value: "#fff" });
+    expect(style(".wake-text", "text-shadow")?.value).toContain("rgb(0 0 0)");
+    expect(style(".wake-sub", "color")).toMatchObject({ value: "var(--text)" });
   });
 });

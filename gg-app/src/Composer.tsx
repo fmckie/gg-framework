@@ -21,7 +21,7 @@ import { ScheduleHint } from "./ScheduleHint";
 import { FileMentionMenu } from "./FileMentionMenu";
 import { ReferencedFiles } from "./ReferencedFiles";
 import { ShimmerText } from "./ShimmerText";
-import { HELPER_MENTION, type HelperTokenParts, type ComposerButtonAction } from "./helper-mention";
+import { type HelperTokenParts, type ComposerButtonAction } from "./helper-mention";
 import { PaperclipIcon, SquareIcon, ArrowUpIcon } from "@phosphor-icons/react";
 import type { UseDictation } from "./useDictation";
 import { AttachmentBar } from "./AttachmentBar";
@@ -75,7 +75,6 @@ export function Composer({
   addFiles,
   phoneComposer,
   workspaceMode,
-  addressHelper,
   enhanceAnim,
   onEnhanceAnimDone,
   kenActive,
@@ -143,7 +142,6 @@ export function Composer({
   addFiles: (files: FileList | File[]) => Promise<void>;
   phoneComposer: boolean;
   workspaceMode: WorkspaceMode;
-  addressHelper: () => void;
   enhanceAnim: { oldText: string; newText: string | null } | null;
   onEnhanceAnimDone: () => void;
   kenActive: boolean;
@@ -234,17 +232,6 @@ export function Composer({
         >
           <PaperclipIcon size={15} />
         </button>
-        {phoneComposer && workspaceMode === "code" && (
-          <button
-            type="button"
-            className="icon-circle helper-chip"
-            // Keep the keyboard up: without this the tap blurs the draft first.
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={addressHelper}
-          >
-            {HELPER_MENTION}
-          </button>
-        )}
         <div className="input-stack">
           {enhanceAnim && (
             <EnhanceDissolve
@@ -283,7 +270,9 @@ export function Composer({
               workspaceMode === "chat"
                 ? "Ask anything\u2026"
                 : workspaceMode === "motion"
-                  ? "Describe a video, paste a link, or drop a PDF\u2026"
+                  ? phoneComposer
+                    ? "Describe a video, or paste a link\u2026"
+                    : "Describe a video, paste a link, or drop a PDF\u2026"
                   : displayPlaceholder
             }
             onPaste={(e) => {
@@ -389,6 +378,7 @@ export function Composer({
           />
           <button
             className="icon-circle icon-circle-primary"
+            data-action={composerAction}
             title={
               composerAction === "stop"
                 ? "Stop the run"

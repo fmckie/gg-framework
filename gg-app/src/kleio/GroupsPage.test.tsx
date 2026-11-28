@@ -155,7 +155,11 @@ describe("GroupsPage", () => {
   it.each(DEVICES)("draws the Cast's form, on %s", async (_device, platform) => {
     if (platform) document.documentElement.classList.add(platform);
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "+ New group" }));
+    if (platform) {
+      // The phone's header is one row: New group is in its "⋯".
+      fireEvent.click(screen.getByRole("button", { name: "More" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "New group" }));
+    } else fireEvent.click(screen.getByRole("button", { name: "+ New group" }));
     expect(document.querySelector(".cast-form.cast-gform .cast-mini")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "How it works" })).toBeTruthy();
     expect(screen.queryByRole("radiogroup", { name: "Colour" })).toBeNull();

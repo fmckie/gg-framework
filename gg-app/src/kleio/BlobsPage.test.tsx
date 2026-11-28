@@ -191,6 +191,24 @@ afterEach(async () => {
   chatHistory.entries = [];
 });
 
+/** A header pill by what it says: its number and its words are separate elements. */
+function pill(text: string): HTMLElement | undefined {
+  return [...document.querySelectorAll<HTMLElement>(".cast-pill")].find(
+    (el) => el.textContent === text,
+  );
+}
+
+/** Choose an entry of the phone header's "⋯". */
+function fromMenu(name: string, within: HTMLElement = document.body): void {
+  fireEvent.click(
+    [...within.querySelectorAll<HTMLElement>(".kleio-menu-btn")][0] ??
+      (() => {
+        throw new Error("no header menu");
+      })(),
+  );
+  fireEvent.click(screen.getByRole("menuitem", { name }));
+}
+
 describe("BlobsPage", () => {
   it("on the iPhone, stands every specialist on the Cast's shelf, with search behind its button", async () => {
     await asPhone(async () => {
@@ -200,7 +218,12 @@ describe("BlobsPage", () => {
         expect(actor(name).matches(".cast-page .cast-actor")).toBe(true);
       expect(document.querySelector(".picker-item.kleio-row")).toBeNull();
       expect(screen.queryByRole("searchbox")).toBeNull();
-      expect(screen.getByRole("button", { name: "Search specialists" })).toBeTruthy();
+      // One row: search, Connect apps and New are the header menu's.
+      expect(screen.queryByRole("button", { name: "Search specialists" })).toBeNull();
+      fromMenu("Search specialists");
+      expect(screen.getByRole("searchbox", { name: "Search specialists" })).toBeTruthy();
+      fromMenu("Close search");
+      expect(screen.queryByRole("searchbox")).toBeNull();
     });
   });
 
@@ -249,7 +272,13 @@ describe("BlobsPage", () => {
       const head = heading.parentElement as HTMLElement;
       expect(head.classList.contains("kleio-head")).toBe(true);
       expect(within(head).getByText(agentRowState(blob({})).text)).toBeTruthy();
-      expect(within(head).getByRole("button", { name: "Edit" })).toBeTruthy();
+      expect(within(head).queryByRole("button", { name: "Edit" })).toBeNull();
+      fireEvent.click(within(head).getByRole("button", { name: "More" }));
+      expect(
+        within(head)
+          .getAllByRole("menuitem")
+          .map((item) => item.textContent),
+      ).toEqual([expect.stringMatching(/^(Show|Hide) sidebar$/), "New conversation", "Edit"]);
       expect(document.querySelector(".kleio-head-titles, .kleio-head-sub")).toBeNull();
     });
   });
@@ -430,7 +459,7 @@ describe("the Cast shelf", () => {
     // The spotlight starts on whoever is working, with its live tool call.
     expect(courier.getAttribute("aria-pressed")).toBe("true");
     expect(within(courier).getByText("Searching web…")).toBeTruthy();
-    expect(screen.getByText("1 working")).toBeTruthy();
+    expect(pill("1 working")).toBeTruthy();
   });
 
   it("shows an idle specialist with its next run or On call, blinking on its own clock", async () => {
@@ -469,7 +498,7 @@ describe("the Cast shelf", () => {
     expect(ledger.className).toContain("is-failed");
     expect(within(ledger).getByText("Last run failed")).toBeTruthy();
     expect(within(ledger).getByText("Gmail needs signing in")).toBeTruthy();
-    expect(screen.getByText("2 need you")).toBeTruthy();
+    expect(pill("2 need you")).toBeTruthy();
     // A long reason stays on one line (the CSS clips it); the whole of it is the bubble's title.
     const bubble = actor("Stuck").querySelector(".cast-bubble");
     expect(bubble?.getAttribute("title")).toBe(long);
@@ -510,8 +539,8 @@ describe("the Cast shelf", () => {
     expect(shelves()).toEqual([10, 10]);
     expect(within(actor("Herald")).getByText("Tue 07:30")).toBeTruthy();
     expect(within(actor("Postie")).getByText("Today 15:00")).toBeTruthy();
-    expect(screen.getByText("3 working")).toBeTruthy();
-    expect(screen.getByText("3 need you")).toBeTruthy();
+    expect(pill("3 working")).toBeTruthy();
+    expect(pill("3 need you")).toBeTruthy();
     // A crowd stays calm: working shows by bouncing, each on its own beat, and
     // idle eyes blink on the slow clocks.
     expect(actor("Courier").querySelector(".cast-bubble")).toBeNull();
@@ -535,7 +564,7 @@ describe("the Cast shelf", () => {
     expect(shelves()).toEqual([9, 9, 8]);
     const rows = [...document.querySelectorAll<HTMLElement>(".cast-row")];
     expect(rows.map((r) => r.style.getPropertyValue("--n"))).toEqual(["", "", "8"]);
-    expect(screen.getByText("4 need you")).toBeTruthy();
+    expect(pill("4 need you")).toBeTruthy();
     expect(document.querySelector(".cast-more")).toBeNull();
     await pick("Critic");
     expect(actor("Critic").getAttribute("aria-pressed")).toBe("true");
@@ -894,7 +923,7 @@ describe("the Cast shelf", () => {
   it("opens the Cast's form on the iPhone too, for a new specialist and for an edit", async () => {
     await asPhone(async () => {
       await renderCast(7);
-      fireEvent.click(screen.getByRole("button", { name: "+ New specialist" }));
+      fromMenu("New specialist");
       const made = screen.getByText("new agent form").closest("[data-form]");
       expect(made?.getAttribute("data-form")).toBe("cast");
       fireEvent.click(screen.getByRole("button", { name: "Cancel" }));

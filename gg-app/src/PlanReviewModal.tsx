@@ -3,6 +3,7 @@ import { useDialogFocus } from "./dialog-focus";
 import { theme } from "./theme";
 import { YourPlanLogo } from "./PlanModeLogo";
 import { Markdown } from "./Markdown";
+import { isPhone } from "./platform";
 
 interface Props {
   /** Plan markdown to review. */
@@ -102,9 +103,12 @@ export function PlanReviewModal({
               }}
             />
             <div className="plan-feedback-row">
-              <span className="plan-feedback-hint" style={{ color: theme.textDim }}>
-                {"\u2318\u23CE to send \u00b7 Esc to cancel"}
-              </span>
+              {/* Keys a phone has none of. */}
+              {!isPhone() && (
+                <span className="plan-feedback-hint" style={{ color: theme.textDim }}>
+                  {"\u2318\u23CE to send \u00b7 Esc to cancel"}
+                </span>
+              )}
               <span className="plan-feedback-buttons">
                 <button className="btn btn-ghost btn-sm" onClick={closeFeedback}>
                   Cancel

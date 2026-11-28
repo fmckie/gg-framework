@@ -344,3 +344,13 @@ describe("ModelTrigger", () => {
     );
   });
 });
+
+describe("ModelPanel — the Helper's model on the phone", () => {
+  it("holds the picker it is given, and none on the desktop", () => {
+    const desktop = open();
+    expect(desktop.panel.querySelector(".model-helper")).toBeNull();
+    desktop.unmount();
+    const { panel } = open({ helper: <span className="model-anchor">Helper</span> });
+    expect(panel.querySelector(".model-helper > .model-anchor")?.textContent).toBe("Helper");
+  });
+});

@@ -38,6 +38,7 @@ export function WorkspaceHeaderActions({
   windowFocused,
   hasCommit,
   submitText,
+  phone = false,
 }: {
   progress: ProgressSnapshot | null;
   rankCelebrateNonce: string | null;
@@ -65,6 +66,9 @@ export function WorkspaceHeaderActions({
   windowFocused: boolean;
   hasCommit: boolean;
   submitText: (text: string, label?: string, opts?: { keepInput?: boolean }) => void;
+  /** The iPhone: Notes, Tasks, Checklist, the commit action and Help are in the
+   *  composer's More panel, so the tools are one line. */
+  phone?: boolean;
 }) {
   return (
     <>
@@ -103,23 +107,27 @@ export function WorkspaceHeaderActions({
               }}
             />
             {newSessionButton}
-            <button
-              className="btn btn-sm btn-ghost"
-              title="Open your notes for this project"
-              onClick={() => setShowNotes(true)}
-            >
-              Notes
-            </button>
-            <button
-              className="btn btn-sm btn-ghost"
-              title="View and run this project's tasks"
-              onClick={openTasks}
-            >
-              {projectTasks.some((t) => t.status !== "done")
-                ? `Tasks (${projectTasks.filter((t) => t.status !== "done").length})`
-                : "Tasks"}
-            </button>
-            {checklistButton}
+            {!phone && (
+              <button
+                className="btn btn-sm btn-ghost"
+                title="Open your notes for this project"
+                onClick={() => setShowNotes(true)}
+              >
+                Notes
+              </button>
+            )}
+            {!phone && (
+              <button
+                className="btn btn-sm btn-ghost"
+                title="View and run this project's tasks"
+                onClick={openTasks}
+              >
+                {projectTasks.some((t) => t.status !== "done")
+                  ? `Tasks (${projectTasks.filter((t) => t.status !== "done").length})`
+                  : "Tasks"}
+              </button>
+            )}
+            {!phone && checklistButton}
             <RadioButton />
             {/* <GazeButton /> */}
             <WindowLayoutButton
@@ -128,7 +136,7 @@ export function WorkspaceHeaderActions({
                 setToolsHiddenPersisted(true);
               }}
             />
-            {needsGitInit ? (
+            {phone ? null : needsGitInit ? (
               <button
                 className="btn btn-sm btn-ghost"
                 disabled={running}
@@ -155,7 +163,7 @@ export function WorkspaceHeaderActions({
                 </MetalButton>
               )
             )}
-            {helpButton}
+            {!phone && helpButton}
           </span>
         </>
       )}

@@ -3,6 +3,8 @@ import { updateGoal, type GoalContextItem, type GoalStateInfo, type ModelOption 
 import type { LiveToolEntry } from "../LiveToolPanel";
 import type { Item } from "../transcript-item";
 import { Modal } from "../Modal";
+import { KleioMenu } from "../kleio/KleioChrome";
+import { isPhone } from "../platform";
 import { GoalContextField, GoalInstructionsField, type ContextPick } from "./GoalForm";
 import { GoalFinish } from "./GoalFinish";
 import { StatusPill } from "./StatusPill";
@@ -374,6 +376,10 @@ export function GoalPanel({
     />
   );
 
+  // The phone keeps the bar to one row: the goal, its views and a "⋯" that
+  // holds Pause, Goal settings and the Workers' model. The finish card scrolls
+  // with the Workers (WorkerList.tsx) rather than pushing the courtyard off.
+  const phone = isPhone();
   return (
     <div className="goal-panel">
       <div className="goal-bar" role="group" aria-label="Goal">
@@ -382,16 +388,39 @@ export function GoalPanel({
           {tallyLine}
         </div>
         {views}
-        <div className="goal-bar-tools">
-          <span className="goal-bar-actions">
-            {pause}
-            {settings}
-          </span>
-          <span className="goal-bar-model">
-            {modelLabel}
-            <span className="goal-bar-select">{modelSelect}</span>
-          </span>
-        </div>
+        {phone ? (
+          <KleioMenu
+            label="Goal actions"
+            items={[
+              ...(active && onPauseChange
+                ? [
+                    {
+                      label: PAUSE_LABEL[runState],
+                      onSelect: () => onPauseChange(runState === "running"),
+                    },
+                  ]
+                : []),
+              { label: "Goal settings", onSelect: () => setSettingsOpen(true) },
+            ]}
+            extra={
+              <div className="goal-bar-model goal-menu-model">
+                {modelLabel}
+                <span className="goal-bar-select">{modelSelect}</span>
+              </div>
+            }
+          />
+        ) : (
+          <div className="goal-bar-tools">
+            <span className="goal-bar-actions">
+              {pause}
+              {settings}
+            </span>
+            <span className="goal-bar-model">
+              {modelLabel}
+              <span className="goal-bar-select">{modelSelect}</span>
+            </span>
+          </div>
+        )}
       </div>
       {status && view === "workers" && (
         <div className="placeholder-bar goal-status">
@@ -416,7 +445,7 @@ export function GoalPanel({
           </button>
         </div>
       )}
-      {shownFinish && (
+      {shownFinish && !phone && (
         <GoalFinish
           finish={shownFinish}
           onShowChat={() => onViewChange("chat")}

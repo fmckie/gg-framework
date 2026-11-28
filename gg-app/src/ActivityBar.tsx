@@ -263,6 +263,8 @@ export function ActivityBar({
     <div
       className={`task-activity${hostAwayShown ? " is-host-away" : ""}`}
       data-phase={activity?.phase ?? (running ? "working" : "idle")}
+      // The rotating quip, which says nothing about the session: the phone hides the line.
+      data-quip={bareIdle && idleLine === undefined ? "" : undefined}
     >
       <div className={`statusrow${active ? " running" : ""}`}>
         <div className="activity-summary">

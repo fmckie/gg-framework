@@ -1706,6 +1706,11 @@ function waitingWords(n: number): string {
 
 // ─── pair a device: a one-time pairing QR code ──────────────────────────────
 
+/** What this device asks with: a Mac has Touch ID, an iPhone Face ID or Touch ID. */
+function biometricName(): string {
+  return isPhone() ? "Face ID or Touch ID" : "Touch ID";
+}
+
 function PairDeviceCard({
   baseUrl,
   admin,
@@ -1772,7 +1777,7 @@ function PairDeviceCard({
             disabled={busy}
             onClick={() => void mint()}
           >
-            {busy ? "Confirm with Touch ID…" : "Show pairing QR"}
+            {busy ? `Confirm with ${biometricName()}…` : "Show pairing QR"}
           </button>
         </div>
       )}
@@ -1886,14 +1891,14 @@ function DevicesCard({
         <p className="settings-desc">Only an admin device can see and revoke devices.</p>
       ) : devices === null ? (
         <div className="conn-row">
-          <p className="settings-desc">Showing devices needs Touch ID.</p>
+          <p className="settings-desc">Showing devices needs {biometricName()}.</p>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
             disabled={busy}
             onClick={() => void load()}
           >
-            {busy ? "Confirm with Touch ID…" : "Show devices"}
+            {busy ? `Confirm with ${biometricName()}…` : "Show devices"}
           </button>
         </div>
       ) : live.length === 0 ? (

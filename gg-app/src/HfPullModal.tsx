@@ -281,7 +281,8 @@ export function HfPullModal({ onClose }: Props): React.ReactElement {
             Download another
           </button>
         )}
-        <button className="modal-btn" onClick={onClose}>
+        {/* modal-btn-close: it does what the head's × does (kleio-phone.css). */}
+        <button className="modal-btn modal-btn-close" onClick={onClose}>
           {done ? "Done" : installing ? "Hide" : "Close"}
         </button>
       </div>

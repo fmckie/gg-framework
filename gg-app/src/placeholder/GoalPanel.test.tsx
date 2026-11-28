@@ -407,29 +407,90 @@ describe("GoalPanel in a desktop session", () => {
 });
 
 describe("GoalPanel on the iPhone", () => {
-  it("draws the desktop's two-line bar and opens its settings as the same dialog", () => {
+  it("keeps the bar to one row: the goal, its views and a ⋯ with Pause, settings and the model", () => {
     document.documentElement.classList.add("platform-ios");
+    const onPauseChange = vi.fn();
     render(
       <div className="app app-session">
-        <GoalPanel {...base} goal={GOAL} onPauseChange={vi.fn()} />
+        <GoalPanel {...base} goal={GOAL} running onPauseChange={onPauseChange} />
       </div>,
     );
     const bar = screen.getByRole("group", { name: "Goal" });
-    expect(bar.className).toBe("goal-bar");
     expect(bar.matches(`${PANEL} > .goal-bar`)).toBe(true);
+    expect([...bar.children].map((el) => el.className)).toEqual([
+      "goal-bar-title",
+      "goal-bar-views",
+      "kleio-menu-wrap",
+    ]);
+    // Closed, the row holds only its views and the ⋯.
+    expect(screen.queryByRole("button", { name: "Pause the goal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Goal settings" })).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
+
+    const more = within(bar).getByRole("button", { name: "Goal actions" });
+    expect(more.getAttribute("aria-haspopup")).toBe("dialog");
+    fireEvent.click(more);
+    const menu = screen.getByRole("dialog", { name: "Goal actions" });
+    expect(within(menu).getByRole("button", { name: "Pause the goal" })).toBeTruthy();
+    const select = within(menu).getByLabelText("Workers' model");
+    fireEvent.change(select, { target: { value: "" } });
+    expect(base.onSelectWorkerModel).toHaveBeenCalledWith(null);
+
+    fireEvent.click(within(menu).getByRole("button", { name: "Pause the goal" }));
+    expect(onPauseChange).toHaveBeenCalledWith(true);
+
+    fireEvent.click(within(bar).getByRole("button", { name: "Goal actions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Goal settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Goal settings" });
+    expect(dialog.classList.contains("goal-form-modal")).toBe(true);
+    expect(within(dialog).getByRole("form", { name: "Goal settings" }).className).toBe("goal-form");
+    // The model is the ⋯'s, not a second copy in the dialog.
+    expect(within(dialog).queryByLabelText("Workers' model")).toBeNull();
+  });
+
+  it("keeps the desktop's two lines, with no ⋯", () => {
+    render(
+      <div className="app app-session">
+        <GoalPanel {...base} goal={GOAL} running onPauseChange={vi.fn()} />
+      </div>,
+    );
+    const bar = screen.getByRole("group", { name: "Goal" });
     expect([...bar.children].map((el) => el.className)).toEqual([
       "goal-bar-title",
       "goal-bar-views",
       "goal-bar-tools",
     ]);
-    expect(screen.getByRole("combobox").parentElement?.className).toBe("goal-bar-select");
+    expect(within(bar).queryByRole("button", { name: "Goal actions" })).toBeNull();
+    expect(within(bar).getByRole("button", { name: "Pause the goal" })).toBeTruthy();
+    expect(within(bar).getByLabelText("Workers' model")).toBeTruthy();
+  });
 
-    const settings = screen.getByRole("button", { name: "Goal settings" });
-    expect(settings.getAttribute("aria-haspopup")).toBe("dialog");
-    expect(settings.hasAttribute("aria-expanded")).toBe(false);
-    fireEvent.click(settings);
-    const dialog = screen.getByRole("dialog", { name: "Goal settings" });
-    expect(dialog.classList.contains("goal-form-modal")).toBe(true);
-    expect(within(dialog).getByRole("form", { name: "Goal settings" }).className).toBe("goal-form");
+  it("hands the finish to the Workers' scroll and draws no card over it", async () => {
+    document.documentElement.classList.add("platform-ios");
+    vi.useFakeTimers();
+    try {
+      const runs = [
+        {
+          goalId: GOAL.id,
+          startedAt: 1000,
+          endedAt: 5000,
+          fromItemId: 7,
+          turns: 4,
+          outputTokens: 900,
+          outcome: "done" as const,
+        },
+      ];
+      const onFinish = vi.fn();
+      const props = { ...base, goal: GOAL, runs, onFinish };
+      const { rerender } = render(<GoalPanel {...props} running />);
+      rerender(<GoalPanel {...props} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1600);
+      });
+      expect(onFinish).toHaveBeenLastCalledWith(expect.objectContaining({ outcome: "done" }));
+      expect(screen.queryByRole("status", { name: "Job done" })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

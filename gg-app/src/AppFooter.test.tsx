@@ -67,7 +67,8 @@ describe("AppFooter thinking toggle", () => {
     const mark = container.querySelector(".thinking-toggle > .effort-mark");
     expect(mark?.getAttribute("aria-hidden")).toBe("true");
     expect(mark?.querySelectorAll("i")).toHaveLength(bars);
-    expect(mark?.nextSibling?.textContent).toBe(`Thinking ${level}`);
+    expect(mark?.textContent).toBe("");
+    expect(mark?.parentElement?.textContent).toBe(`Thinking ${level}`);
   });
 
   it("draws no effort bars for off or for Ultra", () => {
@@ -171,6 +172,25 @@ describe("AppFooter on the iPhone", () => {
       expect(container.querySelector(".ctx-meter-pct")).toBeNull();
       // The whole name: the phone's short form went with its picker.
       expect(container.querySelector(".model-trigger")?.textContent).toBe("Claude Sonnet 4.6");
+    } finally {
+      document.documentElement.classList.remove("platform-ios");
+    }
+  });
+
+  it("leaves the Helper's model to the Model panel, so the row is one line", () => {
+    const desktop = renderFooter("medium");
+    expect(desktop.getByText("Helper")).toBeDefined();
+    desktop.unmount();
+    document.documentElement.classList.add("platform-ios");
+    try {
+      const { container, queryByText } = renderFooter("medium");
+      expect(queryByText("Helper")).toBeNull();
+      expect(container.querySelectorAll(".model-anchor")).toHaveLength(1);
+      // The words stay in the names, which the phone's sheet hides from sight only.
+      expect(container.querySelector(".ctx-word")?.textContent).toBe("Context");
+      expect(container.querySelector(".thinking-toggle .thinking-word")?.textContent).toBe(
+        "Thinking ",
+      );
     } finally {
       document.documentElement.classList.remove("platform-ios");
     }

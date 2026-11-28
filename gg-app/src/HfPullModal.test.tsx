@@ -89,6 +89,21 @@ describe("HfPullModal search", () => {
     expect(screen.getByRole("combobox", { name: "Search Hugging Face models" })).toBeTruthy();
   });
 
+  it("marks its footer's Close as the head's × again, for the phone to drop", async () => {
+    const onClose = vi.fn();
+    await act(async () => {
+      render(<HfPullModal onClose={onClose} />);
+    });
+    const close = screen
+      .getAllByRole("button", { name: "Close" })
+      .find((button) => button.closest(".modal-actions"));
+    if (!close) throw new Error("no footer Close");
+    expect(close.classList.contains("modal-btn-close")).toBe(true);
+    expect(close.parentElement?.children).toHaveLength(1);
+    fireEvent.click(close);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("surfaces a failed search as an alert, not a silent empty list", async () => {
     hfSearchMock.mockRejectedValue(new Error("Hugging Face responded 503"));
     await act(async () => {

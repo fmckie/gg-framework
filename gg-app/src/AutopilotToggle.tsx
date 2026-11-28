@@ -4,9 +4,10 @@
  * in the nav row. State lives on the sidecar (persisted per-cwd in gg-app.json);
  * this is a controlled switch that optimistically flips then fires `setAutopilot`.
  *
- * Markup mirrors the source snippet exactly (label.cl-switch > input + span);
+ * Markup follows the source snippet (.cl-switch > input + span) inside a label;
  * the styling lives in `.cl-switch` rules in App.css, re-themed to the app's
  * accent so the "on" track/thumb read as gg-coder purple, not the original teal.
+ * The label is the whole toggle, so the word is pressed as well as the switch.
  */
 interface Props {
   /** Current on/off state (from the sidecar's AgentState). */
@@ -21,14 +22,14 @@ interface Props {
 
 export function AutopilotToggle({ checked, onChange, disabled }: Props): React.ReactElement {
   return (
-    <span
+    <label
       className="autopilot-toggle"
       title="Autopilot: after each run, auto-review the work and continue if adjustments are needed"
       data-suppress-click-sound
     >
       <span className="autopilot-label">Autopilot</span>
       <span className="cl-toggle-switch">
-        <label className="cl-switch">
+        <span className="cl-switch">
           <input
             type="checkbox"
             checked={checked}
@@ -36,8 +37,8 @@ export function AutopilotToggle({ checked, onChange, disabled }: Props): React.R
             onChange={(e) => onChange(e.target.checked)}
           />
           <span />
-        </label>
+        </span>
       </span>
-    </span>
+    </label>
   );
 }

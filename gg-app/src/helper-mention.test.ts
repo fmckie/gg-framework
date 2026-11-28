@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  addressesHelper,
   composerButtonAction,
   helperQuestion,
   helperTokenParts,
-  withHelperMention,
   type ComposerButtonAction,
 } from "./helper-mention";
 
@@ -59,26 +57,6 @@ describe("helperTokenParts", () => {
       token: "@Help",
       rest: ": why?",
     });
-  });
-});
-
-describe("withHelperMention", () => {
-  const cases: [string, string][] = [
-    ["", "@help "],
-    ["what happened?", "@help what happened?"],
-    ["  what happened?", "@help what happened?"],
-    ["@help what happened?", "@help what happened?"],
-    ["@helper what happened?", "@helper what happened?"],
-    ["@muse what happened?", "@muse what happened?"],
-    ["@helper.ts is broken", "@help @helper.ts is broken"],
-    ["@ken what happened?", "@ken what happened?"],
-  ];
-  it.each(cases)("%j becomes %j", (draft, expected) => {
-    expect(withHelperMention(draft)).toBe(expected);
-  });
-
-  it("produces a draft the composer routes to the helper", () => {
-    expect(addressesHelper(withHelperMention(""))).toBe(true);
   });
 });
 

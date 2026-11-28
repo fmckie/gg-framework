@@ -406,4 +406,23 @@ describe("the finale: a finished stretch on the stage and its stele", () => {
     expect(document.querySelector(".goal-stele")).toBeNull();
     expect(screen.getAllByRole("listitem")).toHaveLength(5);
   });
+
+  it("the iPhone scrolls the finish card first, over the courtyard, and closes it alone", () => {
+    const onShowChat = vi.fn();
+    const desktop = render(draw({ onShowChat }));
+    expect(screen.queryByRole("status", { name: "Job done" })).toBeNull();
+    desktop.unmount();
+
+    document.documentElement.classList.add("platform-ios");
+    render(draw({ onShowChat }));
+    const card = screen.getByRole("status", { name: "Job done" });
+    expect(card.parentElement?.className).toBe("placeholder-scroll");
+    expect(card.parentElement?.firstElementChild).toBe(card);
+    fireEvent.click(within(card).getByRole("button", { name: "Read summary in Chat" }));
+    expect(onShowChat).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(card).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("status", { name: "Job done" })).toBeNull();
+    // The finish still stands: the hearth stays lit.
+    expect(given().hearth).toBe("finished");
+  });
 });

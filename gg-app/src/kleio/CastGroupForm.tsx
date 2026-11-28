@@ -24,6 +24,7 @@ import {
 } from "./groupParts";
 import { KleioHead } from "./KleioChrome";
 import "./kleio-cast.css";
+import { isPhone } from "../platform";
 
 const footOf = (percent: number): React.CSSProperties =>
   ({ "--foot": `${percent}%` }) as React.CSSProperties;
@@ -170,7 +171,7 @@ export function CastGroupForm({
                         <span className="kleio-member-text">
                           <span className="kleio-member-name">Deleted specialist</span>
                           <span className="kleio-member-sub">
-                            Click to remove it from the group.
+                            {isPhone() ? "Tap" : "Click"} to remove it from the group.
                           </span>
                         </span>
                         <span className="kleio-check" aria-hidden="true">

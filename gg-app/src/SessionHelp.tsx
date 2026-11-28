@@ -130,9 +130,7 @@ export function sessionHelpSections(mode: WorkspaceMode, phone: boolean): HelpSe
           id: "muse",
           icon: ChatCircleTextIcon,
           title: "Ask Helper",
-          body: phone
-            ? "Start a message with @help, or tap the @help button, to ask Helper. It answers alongside Kleio's work without stopping it, and it can read your project but not change it."
-            : "Start a message with @help to ask Helper. It answers alongside Kleio's work without stopping it, and it can read your project but not change it.",
+          body: "Start a message with @help to ask Helper. It answers alongside Kleio's work without stopping it, and it can read your project but not change it.",
         },
         {
           id: "autopilot",

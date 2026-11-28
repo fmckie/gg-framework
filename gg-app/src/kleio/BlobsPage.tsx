@@ -15,6 +15,7 @@ import { Schedules } from "./BlobSchedules";
 import { describeAutoSchedules } from "./blobFormat";
 import { CastForm } from "./CastForm";
 import { CastList } from "./CastList";
+import { ClampText } from "./ClampText";
 import { shortHost } from "./host-name";
 import {
   KleioHead,
@@ -270,7 +271,9 @@ function AgentDetail({
           </button>
         }
       >
-        <p className="kleio-job-text">{blob.job}</p>
+        <ClampText key={blob.id} className="kleio-job-text">
+          {blob.job}
+        </ClampText>
       </KleioPanel>
       <AssetsPanel assets={assets} onError={setError} />
       <Schedules blob={blob} onChanged={onChanged} />
@@ -304,6 +307,11 @@ function AgentDetail({
         leading={<AgentAvatar agent={blob} size={28} live={blob.running} />}
         title={blob.name}
         subtitle={<Badge className={`kleio-state is-${state.tone}`}>{state.text}</Badge>}
+        phoneMenu={[
+          { label: sidebar.open ? "Hide sidebar" : "Show sidebar", onSelect: sidebar.toggle },
+          { label: "New conversation", onSelect: () => setConfirmNew(true), disabled: starting },
+          { label: "Edit", onSelect: onEdit },
+        ]}
         actions={
           <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}>
             <PencilSimpleIcon size={14} weight="bold" aria-hidden="true" />
@@ -330,7 +338,9 @@ function AgentDetail({
               <div className="kleio-chat-intro">
                 <AgentAvatar agent={blob} size={72} animated />
                 <p className="kleio-chat-intro-name">{blob.name}</p>
-                <p className="kleio-chat-intro-job">{blob.job}</p>
+                <ClampText key={blob.id} className="kleio-chat-intro-job">
+                  {blob.job}
+                </ClampText>
                 <p className="kleio-chat-hint">
                   Ask it anything about its job. This chat is shared with your phone.
                 </p>
